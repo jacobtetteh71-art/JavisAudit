@@ -1,0 +1,80 @@
+name: javisaudit
+description: A lightweight offline-first mobile digital ledger for VAT compliance among MSEs in Ghana.
+
+# The publish_to: 'none' prevents accidental publishing to pub.dev
+publish_to: 'none'
+
+# Version of the app — major.minor.patch+buildNumber
+version: 1.0.3+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── Database ────────────────────────────────────────────────────────────────
+  # sqflite: the main SQLite plugin for Flutter
+  # Used to store all income, expense, sales, and profile records on-device
+  sqflite: ^2.3.3+1
+
+  # path: helps build the correct file path to the database on different OS
+  path: ^1.9.0
+
+  # hive + hive_flutter: fast key-value store used for settings and notification flags
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # ── State Management ────────────────────────────────────────────────────────
+  # provider: the ChangeNotifier pattern — keeps UI in sync with database changes
+  provider: ^6.1.2
+
+  # ── Charts ──────────────────────────────────────────────────────────────────
+  # fl_chart: draws bar charts and pie charts in the dashboard and reports screens
+  fl_chart: ^0.67.0
+
+  # ── PDF Generation ──────────────────────────────────────────────────────────
+  # pdf: generates the year-end audit PDF from Dart data
+  pdf: ^3.11.0
+
+  # printing: allows the user to share/print the generated PDF via Android share sheet
+  printing: ^5.13.0
+
+  # ── Notifications ───────────────────────────────────────────────────────────
+  # flutter_local_notifications: fires local push alerts when VAT threshold is crossed
+  flutter_local_notifications: ^17.2.2
+
+  # ── File Handling ───────────────────────────────────────────────────────────
+  # file_picker: opens a system file picker dialog for selecting backup JSON files
+  file_picker: ^8.0.7
+
+  # path_provider: gives us the Documents/Downloads directory path for saving files
+  path_provider: ^2.1.3
+
+  # share_plus: opens the Android share sheet so users can share PDF/backup via WhatsApp, email, etc.
+  share_plus: ^9.0.0
+
+  # ── Utilities ───────────────────────────────────────────────────────────────
+  # intl: formats dates (e.g., "15 Jun 2026") and numbers (e.g., "GH₵ 1,250.00")
+  intl: ^0.19.0
+
+  # uuid: generates unique IDs — used as idempotency keys in some operations
+  uuid: ^4.4.0
+
+  # cupertino_icons: provides the default iOS-style icons (used by Flutter)
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # hive_generator and build_runner are used to generate Hive TypeAdapters
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.9
+
+flutter:
+  uses-material-design: true
+  # Declare any assets (images, fonts) here if added later
+  assets:
+    - assets/

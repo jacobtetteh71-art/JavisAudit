@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  styles.xml  –  Launch & Normal Themes
+  ============================================================
+  LaunchTheme: shown for a split second before Flutter's first
+  frame is drawn (prevents a white flash on cold start).
+  NormalTheme: used once Flutter has taken over rendering.
+-->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

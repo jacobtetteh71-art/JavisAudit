@@ -1,0 +1,81 @@
+// ============================================================
+// android/app/build.gradle  –  Android Build Configuration
+// ============================================================
+// Defines the package name, minimum Android version, and how
+// the app is signed and compiled into an APK.
+// ============================================================
+
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must come after Android & Kotlin
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '1'
+def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0.3'
+
+android {
+    namespace = "com.javisaudit.app"
+    // compileSdk 34 = Android 14 — required by several plugins (sqflite, etc.)
+    compileSdk = 34
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        // Unique app identifier — used on the Play Store and for
+        // the private SQLite database directory:
+        // /data/data/com.javisaudit.app/databases/javisaudit.db
+        applicationId = "com.javisaudit.app"
+
+        // minSdk 26 = Android 8.0 — matches the document spec
+        // recommendation (API Level 26+) for broad device coverage
+        // among Ghanaian MSE owners while keeping modern APIs available.
+        minSdk = 26
+        targetSdk = 34
+
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
+    }
+
+    buildTypes {
+        release {
+            // TODO: replace with your own upload keystore before
+            // publishing to the Play Store. Using debug signing
+            // here only so `flutter build apk --release` succeeds
+            // out of the box during development.
+            signingConfig = signingConfigs.debug
+            minifyEnabled = true
+            shrinkResources = true
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    // Kotlin standard library, required by the Flutter Android embedding
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.22"
+}

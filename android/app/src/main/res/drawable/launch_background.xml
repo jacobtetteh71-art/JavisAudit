@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  launch_background.xml
+  ============================================================
+  The native splash background shown for the brief moment
+  before Flutter's engine renders our custom SplashScreen
+  widget. Matches the deep green brand colour so there is no
+  visible flash/flicker on app cold-start.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black">
+        <!-- Overridden below by our solid brand colour -->
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0F4C2A"/>
+        </shape>
+    </item>
+</layer-list>

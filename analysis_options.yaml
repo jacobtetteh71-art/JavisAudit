@@ -1,0 +1,20 @@
+# ============================================================
+# analysis_options.yaml  –  Dart/Flutter Linter Rules
+# ============================================================
+# Running `flutter analyze` uses these rules to catch mistakes
+# before you even run the app — unused imports, missing const,
+# type errors, etc.
+# ============================================================
+
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    avoid_print: true
+    prefer_single_quotes: true
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"

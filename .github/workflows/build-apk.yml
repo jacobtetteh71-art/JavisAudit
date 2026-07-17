@@ -1,0 +1,58 @@
+name: Build JavisAudit APK
+
+# Runs automatically whenever you push to main/master, AND lets you
+# trigger it manually from the "Actions" tab in GitHub with a button click.
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Pull your repository code into the build machine
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Install Java (required by the Android Gradle build)
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. Install the Flutter SDK, pinned to match this project's
+      #    environment constraint in pubspec.yaml (sdk: '>=3.2.0 <4.0.0')
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+
+      # 4. Sanity-check the environment (shows up in the build log)
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      # 5. Download all Dart/Flutter package dependencies
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 6. Static analysis pass — won't fail the build, just reports issues in the log
+      - name: Analyze project (non-blocking)
+        run: flutter analyze || true
+
+      # 7. Build the release APK
+      - name: Build release APK
+        run: flutter build apk --release
+
+      # 8. Upload the finished APK as a downloadable build artifact
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: javisaudit-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
