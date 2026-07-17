@@ -25,6 +25,19 @@ allprojects {
         google()
         mavenCentral()
     }
+
+    // FIX for "AAPT: error: resource android:attr/lStar not found":
+    // Some plugins (transitively) pull in an older androidx.core that
+    // doesn't define this attribute for compileSdk 31+, while others
+    // pull a newer one — causing a resource clash at build time. This
+    // forces every module in the project to use one consistent,
+    // up-to-date version, which resolves the conflict.
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.core:core:1.13.1'
+            force 'androidx.core:core-ktx:1.13.1'
+        }
+    }
 }
 
 rootProject.buildDir = '../build'
