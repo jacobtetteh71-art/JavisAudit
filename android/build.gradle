@@ -25,26 +25,34 @@ allprojects {
         google()
         mavenCentral()
     }
-
-    // FIX for "AAPT: error: resource android:attr/lStar not found":
-    // Some plugins (transitively) pull in an older androidx.core that
-    // doesn't define this attribute for compileSdk 31+, while others
-    // pull a newer one — causing a resource clash at build time. This
-    // forces every module in the project to use one consistent,
-    // up-to-date version, which resolves the conflict.
-    configurations.all {
-        resolutionStrategy {
-            force 'androidx.core:core:1.13.1'
-            force 'androidx.core:core-ktx:1.13.1'
-        }
-    }
 }
 
 rootProject.buildDir = '../build'
+
+// FIX for "AAPT: error: resource android:attr/lStar not found":
+// This is a confirmed Flutter regression (flutter/flutter#153281) that
+// appears when a plugin was compiled against an Android SDK version
+// below 31, while the app itself targets a newer one (34, in our case).
+// The official workaround from the Flutter team is to bump any such
+// plugin's compileSdk up to 31 automatically at build time — this does
+// NOT change our own app's SDK settings, only the plugins that need it.
 subprojects {
+    afterEvaluate { project ->
+        if (project.extensions.findByName("android") != null) {
+            Integer pluginCompileSdk = project.android.compileSdk
+            if (pluginCompileSdk != null && pluginCompileSdk < 31) {
+                project.logger.error(
+                        "Overriding compileSdk in plugin '" + project.name +
+                        "' from " + pluginCompileSdk + " to 31 " +
+                        "(workaround for https://github.com/flutter/flutter/issues/153281)"
+                )
+                project.android {
+                    compileSdk 31
+                }
+            }
+        }
+    }
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
     project.evaluationDependsOn(':app')
 }
 
