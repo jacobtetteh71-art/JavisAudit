@@ -5,7 +5,7 @@ description: A lightweight offline-first mobile digital ledger for VAT complianc
 publish_to: 'none'
 
 # Version of the app — major.minor.patch+buildNumber
-version: 1.0.3+1
+version: 1.1.0+2
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -61,6 +61,10 @@ dependencies:
 
   # uuid: generates unique IDs — used as idempotency keys in some operations
   uuid: ^4.4.0
+
+  # crypto: used to securely hash the login PIN and backup password
+  # (we never store the actual PIN/password — only a salted hash of it)
+  crypto: ^3.0.3
 
   # cupertino_icons: provides the default iOS-style icons (used by Flutter)
   cupertino_icons: ^1.0.8

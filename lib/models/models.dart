@@ -170,6 +170,7 @@ class Sale {
   final double totalAmount;       // quantity × unitPrice — stored for query speed
   final String paymentMethod;
   final String paymentStatus;     // 'Paid' | 'Pending' | 'Partial Payment'
+  final double amountPaid;        // Running total of everything paid so far
   final String? notes;
   final int? incomeId;            // FK to income table (set when status = 'Paid')
   final String createdAt;
@@ -184,10 +185,15 @@ class Sale {
     required this.totalAmount,
     required this.paymentMethod,
     required this.paymentStatus,
+    this.amountPaid = 0,
     this.notes,
     this.incomeId,
     required this.createdAt,
   });
+
+  // How much is still owed on this sale. Never negative, even if
+  // amountPaid somehow exceeds totalAmount by a rounding fraction.
+  double get balance => (totalAmount - amountPaid) < 0 ? 0 : (totalAmount - amountPaid);
 
   factory Sale.fromMap(Map<String, dynamic> map) {
     return Sale(
@@ -200,6 +206,7 @@ class Sale {
       totalAmount:     (map['total_amount'] as num).toDouble(),
       paymentMethod:   map['payment_method'] as String,
       paymentStatus:   map['payment_status'] as String,
+      amountPaid:      (map['amount_paid'] as num?)?.toDouble() ?? 0,
       notes:           map['notes'] as String?,
       incomeId:        map['income_id'] as int?,
       createdAt:       map['created_at'] as String,
@@ -216,6 +223,7 @@ class Sale {
       'total_amount':     totalAmount,
       'payment_method':   paymentMethod,
       'payment_status':   paymentStatus,
+      'amount_paid':      amountPaid,
       'notes':            notes,
       'income_id':        incomeId,
       'created_at':       createdAt,
@@ -227,6 +235,52 @@ class Sale {
     'Pending',
     'Partial Payment',
   ];
+}
+
+// ============================================================
+// models/sale_payment_model.dart  –  Sale Payment History
+// ============================================================
+// One row per installment payment recorded against a Sale that
+// was Pending or Partial Payment. Lets the app show a full
+// payment history and know exactly how much is still owed.
+
+class SalePayment {
+  final int? id;
+  final int saleId;
+  final double amount;
+  final String paymentMethod;
+  final String date;
+  final String createdAt;
+
+  const SalePayment({
+    this.id,
+    required this.saleId,
+    required this.amount,
+    required this.paymentMethod,
+    required this.date,
+    required this.createdAt,
+  });
+
+  factory SalePayment.fromMap(Map<String, dynamic> map) {
+    return SalePayment(
+      id:            map['id'] as int?,
+      saleId:        map['sale_id'] as int,
+      amount:        (map['amount'] as num).toDouble(),
+      paymentMethod: map['payment_method'] as String,
+      date:          map['date'] as String,
+      createdAt:     map['created_at'] as String,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'sale_id':        saleId,
+      'amount':         amount,
+      'payment_method': paymentMethod,
+      'date':           date,
+      'created_at':     createdAt,
+    };
+  }
 }
 
 // ============================================================

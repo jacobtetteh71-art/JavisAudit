@@ -54,9 +54,43 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 1,
-      onCreate: _createTables, // Called only when db is brand new
+      version: 2,
+      onCreate: _createTables,   // Called only when db is brand new
+      onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
+  }
+
+  // ── _upgradeTables: schema migration for existing installs ─
+  // version 1 → 2 adds:
+  //   • login security columns on `settings` (pin_hash, password_hash, auth_salt)
+  //   • `amount_paid` column on `sales` (tracks partial payments)
+  //   • the new `sale_payments` table (one row per installment payment)
+  Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE settings ADD COLUMN pin_hash TEXT');
+      await db.execute('ALTER TABLE settings ADD COLUMN password_hash TEXT');
+      await db.execute('ALTER TABLE settings ADD COLUMN auth_salt TEXT');
+
+      await db.execute('ALTER TABLE sales ADD COLUMN amount_paid REAL NOT NULL DEFAULT 0');
+
+      // Any sale that was already fully 'Paid' before this update
+      // is fully paid — backfill amount_paid so balances are correct.
+      await db.execute('''
+        UPDATE sales SET amount_paid = total_amount WHERE payment_status = 'Paid'
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS sale_payments (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          sale_id        INTEGER NOT NULL,
+          amount         REAL    NOT NULL CHECK(amount > 0),
+          payment_method TEXT    NOT NULL,
+          date           TEXT    NOT NULL,
+          created_at     TEXT    NOT NULL,
+          FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+        )
+      ''');
+    }
   }
 
   // ── _createTables: define all five tables ─────────────────
@@ -129,10 +163,26 @@ class DatabaseHelper {
         total_amount     REAL    NOT NULL,
         payment_method   TEXT    NOT NULL,
         payment_status   TEXT    NOT NULL DEFAULT 'Paid',
+        amount_paid      REAL    NOT NULL DEFAULT 0,
         notes            TEXT,
         income_id        INTEGER,
         created_at       TEXT    NOT NULL,
         FOREIGN KEY (income_id) REFERENCES income(id)
+      )
+    ''');
+
+    // ── Table 4b: sale_payments ────────────────────────────
+    // One row per installment payment recorded against a sale.
+    // Lets us show a full payment history for Pending/Partial sales.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sale_payments (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id        INTEGER NOT NULL,
+        amount         REAL    NOT NULL CHECK(amount > 0),
+        payment_method TEXT    NOT NULL,
+        date           TEXT    NOT NULL,
+        created_at     TEXT    NOT NULL,
+        FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
       )
     ''');
 
@@ -145,6 +195,9 @@ class DatabaseHelper {
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         currency_symbol TEXT    DEFAULT 'GH₵',
         vat_threshold   REAL    DEFAULT 750000.0,
+        pin_hash        TEXT,
+        password_hash   TEXT,
+        auth_salt       TEXT,
         updated_at      TEXT
       )
     ''');
@@ -342,6 +395,44 @@ class DatabaseHelper {
     return await db.delete('sales', where: 'id = ?', whereArgs: [id]);
   }
 
+  // Update an existing sale row (used when a payment changes its
+  // amount_paid / payment_status / income_id)
+  Future<int> updateSale(int id, Map<String, dynamic> sale) async {
+    final db = await database;
+    return await db.update('sales', sale, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ── recordSalePayment: the core "finish paying" operation ──
+  // Runs as a single transaction so the payment history row and
+  // the sale's updated totals are always written together —
+  // never one without the other.
+  //   updatedSale: the full new sales row (amount_paid, payment_status,
+  //                income_id already recalculated by SalesProvider)
+  //   payment:     the new sale_payments row to insert
+  Future<void> recordSalePayment({
+    required int saleId,
+    required Map<String, dynamic> updatedSale,
+    required Map<String, dynamic> payment,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.insert('sale_payments', payment);
+      await txn.update('sales', updatedSale, where: 'id = ?', whereArgs: [saleId]);
+    });
+  }
+
+  // All installment payments recorded against one sale, oldest first
+  // (so the payment history reads top-to-bottom like a statement)
+  Future<List<Map<String, dynamic>>> getPaymentsForSale(int saleId) async {
+    final db = await database;
+    return await db.query(
+      'sale_payments',
+      where: 'sale_id = ?',
+      whereArgs: [saleId],
+      orderBy: 'created_at ASC',
+    );
+  }
+
   // ══════════════════════════════════════════════════════════
   // RECENT TRANSACTIONS (Dashboard widget)
   // ══════════════════════════════════════════════════════════
@@ -404,11 +495,12 @@ class DatabaseHelper {
   Future<Map<String, dynamic>> exportAllData() async {
     final db = await database;
     // Fetch every row from every table
-    final profile  = await db.query('business_profile');
-    final income   = await db.query('income');
-    final expenses = await db.query('expenses');
-    final sales    = await db.query('sales');
-    final settings = await db.query('settings');
+    final profile      = await db.query('business_profile');
+    final income       = await db.query('income');
+    final expenses     = await db.query('expenses');
+    final sales        = await db.query('sales');
+    final salePayments = await db.query('sale_payments');
+    final settings     = await db.query('settings');
 
     // Return as a nested map — easy to convert to JSON
     return {
@@ -416,9 +508,10 @@ class DatabaseHelper {
       'income': income,
       'expenses': expenses,
       'sales': sales,
+      'sale_payments': salePayments,
       'settings': settings,
       'exported_at': DateTime.now().toIso8601String(),
-      'app_version': '1.0.3',
+      'app_version': '1.1.0',
     };
   }
 
@@ -430,6 +523,7 @@ class DatabaseHelper {
     // or NONE of it is (prevents partial/corrupt state)
     await db.transaction((txn) async {
       // Wipe all existing data
+      await txn.delete('sale_payments');
       await txn.delete('sales');
       await txn.delete('income');
       await txn.delete('expenses');
@@ -437,24 +531,30 @@ class DatabaseHelper {
       await txn.delete('settings');
 
       // Re-insert from backup
-      final List profile  = data['business_profile'] ?? [];
-      final List income   = data['income'] ?? [];
-      final List expenses = data['expenses'] ?? [];
-      final List sales    = data['sales'] ?? [];
-      final List settings = data['settings'] ?? [];
+      final List profile      = data['business_profile'] ?? [];
+      final List income       = data['income'] ?? [];
+      final List expenses     = data['expenses'] ?? [];
+      final List sales        = data['sales'] ?? [];
+      final List salePayments = data['sale_payments'] ?? [];
+      final List settings     = data['settings'] ?? [];
 
-      for (var row in profile)  await txn.insert('business_profile', Map<String, dynamic>.from(row));
-      for (var row in income)   await txn.insert('income',           Map<String, dynamic>.from(row));
-      for (var row in expenses) await txn.insert('expenses',         Map<String, dynamic>.from(row));
-      for (var row in sales)    await txn.insert('sales',            Map<String, dynamic>.from(row));
-      for (var row in settings) await txn.insert('settings',         Map<String, dynamic>.from(row));
+      for (var row in profile)      await txn.insert('business_profile', Map<String, dynamic>.from(row));
+      for (var row in income)       await txn.insert('income',           Map<String, dynamic>.from(row));
+      for (var row in expenses)     await txn.insert('expenses',         Map<String, dynamic>.from(row));
+      for (var row in sales)        await txn.insert('sales',            Map<String, dynamic>.from(row));
+      for (var row in salePayments) await txn.insert('sale_payments',    Map<String, dynamic>.from(row));
+      for (var row in settings)     await txn.insert('settings',         Map<String, dynamic>.from(row));
     });
   }
 
-  // Delete absolutely everything — used by the "Delete All Data" button
+  // Delete absolutely everything — used by the "Delete All Data" button.
+  // NOTE: this also clears the login PIN/password, since there's no
+  // longer any data left to protect — the app will ask the user to
+  // set up a new PIN the next time they complete onboarding.
   Future<void> deleteAllData() async {
     final db = await database;
     await db.transaction((txn) async {
+      await txn.delete('sale_payments');
       await txn.delete('sales');
       await txn.delete('income');
       await txn.delete('expenses');
@@ -476,5 +576,50 @@ class DatabaseHelper {
       'expenses':         await count('expenses'),
       'sales':            await count('sales'),
     };
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // LOGIN SECURITY (PIN + backup password)
+  // ══════════════════════════════════════════════════════════
+  // We never store the actual PIN or password — only a salted
+  // SHA-256 hash of each (see utils/auth_helper.dart). These live
+  // on the single settings row (id = 1) alongside currency/VAT
+  // settings, so no extra table is needed.
+
+  // Returns the settings row containing pin_hash/password_hash/auth_salt,
+  // or null if no settings row exists yet (e.g. right after Delete All Data)
+  Future<Map<String, dynamic>?> getAuthCredentials() async {
+    final db = await database;
+    final rows = await db.query('settings', limit: 1);
+    return rows.isNotEmpty ? rows.first : null;
+  }
+
+  // Save (or overwrite) the PIN/password hashes. Handles both cases:
+  //   • a settings row already exists → UPDATE it
+  //   • no settings row exists (e.g. after Delete All Data) → INSERT a fresh one
+  Future<void> saveAuthCredentials({
+    required String pinHash,
+    required String passwordHash,
+    required String salt,
+  }) async {
+    final db = await database;
+    final existing = await db.query('settings', limit: 1);
+
+    final values = {
+      'pin_hash': pinHash,
+      'password_hash': passwordHash,
+      'auth_salt': salt,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    if (existing.isNotEmpty) {
+      await db.update('settings', values, where: 'id = ?', whereArgs: [existing.first['id']]);
+    } else {
+      await db.insert('settings', {
+        'currency_symbol': 'GH₵',
+        'vat_threshold': 750000.0,
+        ...values,
+      });
+    }
   }
 }

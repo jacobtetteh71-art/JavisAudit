@@ -221,7 +221,15 @@ class _IncomeListTile extends StatelessWidget {
       onDismissed: (_) {
         context.read<IncomeProvider>().deleteIncome(income.id!);
       },
-      child: Container(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _IncomeDetailSheet(income: income),
+        ),
+        child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -270,6 +278,7 @@ class _IncomeListTile extends StatelessWidget {
               ],
             ),
           ],
+        ),
         ),
       ),
     );
@@ -538,6 +547,72 @@ class _AddIncomeSheetState extends State<_AddIncomeSheet> {
           ),
         );
       },
+    );
+  }
+}
+
+// ============================================================
+// _IncomeDetailSheet  –  Detailed preview of one income entry
+// ============================================================
+class _IncomeDetailSheet extends StatelessWidget {
+  final Income income;
+  const _IncomeDetailSheet({required this.income});
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(income.description, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+
+          _row('Amount', AppFormat.currency(income.amount)),
+          _row('Date', AppFormat.displayDate(income.date)),
+          _row('Category', income.category),
+          _row('Payment Method', income.paymentMethod),
+          if (income.notes != null && income.notes!.isNotEmpty) _row('Notes', income.notes!),
+
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

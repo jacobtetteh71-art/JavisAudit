@@ -16,6 +16,7 @@ import 'reports_screen.dart';
 import 'audit_report_screen.dart';
 import 'backup_screen.dart';
 import 'settings_screen.dart';
+import 'lock_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -115,14 +116,59 @@ class MoreScreen extends StatelessWidget {
           ),
 
           const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.expense,
+                side: const BorderSide(color: AppColors.expense),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onPressed: () => _confirmLogout(context),
+              icon: const Icon(Icons.logout),
+              label: const Text('Logout'),
+            ),
+          ),
+
+          const SizedBox(height: 20),
           Center(
             child: Text(
-              'JavisAudit v1.0.3',
+              'JavisAudit v1.1.0',
               style: TextStyle(color: AppColors.textLight, fontSize: 11),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  // ── _confirmLogout: locks the app, no data is touched ─────
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text(
+          'You will need your PIN (or backup password) to open the app again. '
+          'Your data stays safely on this device.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Logout', style: TextStyle(color: AppColors.expense)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    context.read<AuthProvider>().logout();
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LockScreen()),
+      (route) => false, // clear the whole navigation stack
     );
   }
 

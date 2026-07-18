@@ -13,7 +13,8 @@ import 'package:provider/provider.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
 import 'onboarding_screen.dart';
-import 'main_nav_screen.dart';
+import 'lock_screen.dart';
+import 'set_pin_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -58,6 +59,9 @@ class _SplashScreenState extends State<SplashScreen>
     // Also pre-load the VAT turnover so the dashboard is ready
     await context.read<VatProvider>().loadTurnover();
 
+    // Check whether a login PIN has already been set up
+    await context.read<AuthProvider>().loadAuthStatus();
+
     // Wait for the minimum splash duration (1.5 seconds total)
     await Future.delayed(const Duration(milliseconds: 1500));
 
@@ -66,14 +70,28 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final hasProfile = context.read<ProfileProvider>().hasProfile;
+    final hasCredentials = context.read<AuthProvider>().hasCredentials;
+
+    // Decide which screen comes next:
+    //   • No business profile yet          → Onboarding (first launch ever)
+    //   • Profile exists, no PIN set up    → Set PIN screen (covers users
+    //                                         upgrading from a version of
+    //                                         the app that had no login)
+    //   • Profile exists, PIN already set  → Lock Screen (normal case,
+    //                                         every time the app opens)
+    late final Widget nextScreen;
+    if (!hasProfile) {
+      nextScreen = const OnboardingScreen();
+    } else if (!hasCredentials) {
+      nextScreen = const SetPinScreen();
+    } else {
+      nextScreen = const LockScreen();
+    }
 
     // pushReplacement replaces the splash in the navigation stack
     // so the back button doesn't return to the splash screen
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) =>
-            hasProfile ? const MainNavScreen() : const OnboardingScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => nextScreen),
     );
   }
 

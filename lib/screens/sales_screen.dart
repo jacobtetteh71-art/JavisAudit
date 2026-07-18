@@ -143,7 +143,15 @@ class _SaleListTile extends StatelessWidget {
             false;
       },
       onDismissed: (_) => context.read<SalesProvider>().deleteSale(sale.id!),
-      child: Container(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _SaleDetailSheet(sale: sale),
+        ),
+        child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -182,14 +190,24 @@ class _SaleListTile extends StatelessWidget {
               style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
             ),
             const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                AppFormat.currency(sale.totalAmount),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.gold),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (sale.paymentStatus != 'Paid')
+                  Text(
+                    'Balance: ${AppFormat.currency(sale.balance)}',
+                    style: const TextStyle(fontSize: 11, color: AppColors.expense, fontWeight: FontWeight.w600),
+                  )
+                else
+                  const SizedBox.shrink(),
+                Text(
+                  AppFormat.currency(sale.totalAmount),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.gold),
+                ),
+              ],
             ),
           ],
+        ),
         ),
       ),
     );
@@ -210,6 +228,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   final _quantityCtrl = TextEditingController(text: '1');
   final _unitPriceCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  final _amountPaidCtrl = TextEditingController(); // Only shown for Partial Payment
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedPaymentMethod;
@@ -238,6 +257,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     _quantityCtrl.dispose();
     _unitPriceCtrl.dispose();
     _notesCtrl.dispose();
+    _amountPaidCtrl.dispose();
     super.dispose();
   }
 
@@ -258,6 +278,21 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
       return;
     }
 
+    // For a Partial Payment, an initial amount paid so far is required
+    double startingAmountPaid = 0;
+    if (_selectedStatus == 'Partial Payment') {
+      final entered = double.tryParse(_amountPaidCtrl.text.trim());
+      if (entered == null || entered <= 0) {
+        _showError('Enter how much has been paid so far.');
+        return;
+      }
+      if (entered >= _computedTotal) {
+        _showError('That covers the full amount — please choose "Paid" instead.');
+        return;
+      }
+      startingAmountPaid = entered;
+    }
+
     setState(() => _isSaving = true);
 
     final sale = Sale(
@@ -269,6 +304,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
       totalAmount:      _computedTotal,
       paymentMethod:    _selectedPaymentMethod!,
       paymentStatus:    _selectedStatus,
+      amountPaid:       startingAmountPaid,
       notes:            _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
       createdAt:        DateTime.now().toIso8601String(),
     );
@@ -452,6 +488,20 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                       style: TextStyle(fontSize: 11, color: AppColors.textMuted, fontStyle: FontStyle.italic),
                     ),
                   ),
+                if (_selectedStatus == 'Partial Payment') ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _amountPaidCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Amount Paid So Far *',
+                      prefixText: 'GH₵ ',
+                      border: OutlineInputBorder(),
+                      helperText: 'The remaining balance can be recorded later from the sale\'s detail view.',
+                      helperMaxLines: 2,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
 
                 TextFormField(
@@ -479,6 +529,442 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
           ),
         );
       },
+    );
+  }
+}
+
+// ============================================================
+// _SaleDetailSheet  –  Detailed preview of one sale
+// ============================================================
+// Shows every field of the sale plus its full payment history.
+// If a balance remains (Pending or Partial Payment), a "Record
+// Payment" button lets the user log another installment — and
+// the sale automatically flips to 'Paid' the moment the balance
+// reaches zero (see SalesProvider.recordPayment).
+// ============================================================
+class _SaleDetailSheet extends StatefulWidget {
+  final Sale sale;
+  const _SaleDetailSheet({required this.sale});
+
+  @override
+  State<_SaleDetailSheet> createState() => _SaleDetailSheetState();
+}
+
+class _SaleDetailSheetState extends State<_SaleDetailSheet> {
+  List<SalePayment> _payments = [];
+  bool _isLoadingPayments = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPayments();
+  }
+
+  Future<void> _loadPayments() async {
+    final payments = await context.read<SalesProvider>().getPayments(widget.sale.id!);
+    if (!mounted) return;
+    setState(() {
+      _payments = payments;
+      _isLoadingPayments = false;
+    });
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Paid':
+        return AppColors.income;
+      case 'Pending':
+        return AppColors.expense;
+      default:
+        return AppColors.warning;
+    }
+  }
+
+  void _openRecordPaymentSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RecordPaymentSheet(sale: widget.sale),
+    ).then((_) {
+      // Refresh this sheet's payment history after a payment is recorded,
+      // and re-read the latest sale data from the provider (balance/status
+      // may have just changed).
+      _loadPayments();
+      setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Re-read the freshest copy of this sale from the provider, in case
+    // a payment was just recorded and its status/balance changed.
+    final sales = context.watch<SalesProvider>().sales;
+    final sale = sales.firstWhere((s) => s.id == widget.sale.id, orElse: () => widget.sale);
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.all(20),
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(sale.itemDescription,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _statusColor(sale.paymentStatus).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      sale.paymentStatus,
+                      style: TextStyle(
+                          fontSize: 11, color: _statusColor(sale.paymentStatus), fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              _detailRow('Date', AppFormat.displayDate(sale.date)),
+              if (sale.customerName != null && sale.customerName!.isNotEmpty)
+                _detailRow('Customer', sale.customerName!),
+              _detailRow('Quantity', '${sale.quantity}'),
+              _detailRow('Unit Price', AppFormat.currency(sale.unitPrice)),
+              _detailRow('Payment Method', sale.paymentMethod),
+              if (sale.notes != null && sale.notes!.isNotEmpty) _detailRow('Notes', sale.notes!),
+
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 12),
+
+              // ── Amount summary card ────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.goldLight,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.gold.withOpacity(0.3)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total Amount', style: TextStyle(fontWeight: FontWeight.w600)),
+                        Text(AppFormat.currency(sale.totalAmount),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Amount Paid', style: TextStyle(color: AppColors.textMuted)),
+                        Text(AppFormat.currency(sale.amountPaid),
+                            style: const TextStyle(color: AppColors.income, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                    if (sale.paymentStatus != 'Paid') ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Balance Owed', style: TextStyle(color: AppColors.textMuted)),
+                          Text(AppFormat.currency(sale.balance),
+                              style: const TextStyle(color: AppColors.expense, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // ── Payment history ─────────────────────────────
+              const Text('Payment History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 8),
+              if (_isLoadingPayments)
+                const Center(child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ))
+              else if (_payments.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'No installment payments recorded yet.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
+                  ),
+                )
+              else
+                ..._payments.map((p) => Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(AppFormat.displayDate(p.date),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(p.paymentMethod,
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                            ],
+                          ),
+                          Text(AppFormat.currency(p.amount),
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.income)),
+                        ],
+                      ),
+                    )),
+
+              const SizedBox(height: 12),
+
+              if (sale.paymentStatus != 'Paid')
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                    onPressed: _openRecordPaymentSheet,
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('Record Payment'),
+                  ),
+                )
+              else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle, color: AppColors.primary, size: 18),
+                      SizedBox(width: 6),
+                      Text('Fully paid — added to Income records',
+                          style: TextStyle(fontSize: 12, color: AppColors.primaryDark)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// _RecordPaymentSheet  –  Log one installment payment
+// ============================================================
+class _RecordPaymentSheet extends StatefulWidget {
+  final Sale sale;
+  const _RecordPaymentSheet({required this.sale});
+
+  @override
+  State<_RecordPaymentSheet> createState() => _RecordPaymentSheetState();
+}
+
+class _RecordPaymentSheetState extends State<_RecordPaymentSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _amountCtrl;
+  DateTime _selectedDate = DateTime.now();
+  String? _selectedPaymentMethod;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill with the remaining balance — the common case is
+    // "the customer just paid off what they owed"
+    _amountCtrl = TextEditingController(text: widget.sale.balance.toStringAsFixed(2));
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedPaymentMethod == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a payment method.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    final success = await context.read<SalesProvider>().recordPayment(
+          saleId: widget.sale.id!,
+          amount: double.parse(_amountCtrl.text.trim()),
+          date: AppFormat.dateToString(_selectedDate),
+          paymentMethod: _selectedPaymentMethod!,
+        );
+
+    // A completed sale adds to annual turnover — refresh the VAT tracker
+    if (success && mounted) {
+      await context.read<VatProvider>().loadTurnover();
+    }
+
+    setState(() => _isSaving = false);
+    if (!mounted) return;
+
+    if (success) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment recorded!'), backgroundColor: AppColors.primary),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to record payment. Please try again.'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      // Pushes the sheet above the on-screen keyboard
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Record Payment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Text(
+                'Balance owed: ${AppFormat.currency(widget.sale.balance)}',
+                style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+              ),
+              const SizedBox(height: 16),
+
+              InkWell(
+                onTap: _pickDate,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Date *', border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today, size: 18),
+                  ),
+                  child: Text(AppFormat.displayDate(AppFormat.dateToString(_selectedDate))),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              TextFormField(
+                controller: _amountCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Amount Received *', prefixText: 'GH₵ ', border: OutlineInputBorder(),
+                ),
+                validator: (val) {
+                  final amount = double.tryParse(val ?? '');
+                  if (amount == null || amount <= 0) return 'Enter a valid amount';
+                  if (amount > widget.sale.balance + 0.01) return 'Cannot exceed the balance owed';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+
+              DropdownButtonFormField<String>(
+                value: _selectedPaymentMethod,
+                decoration: const InputDecoration(labelText: 'Payment Method *', border: OutlineInputBorder()),
+                items: Income.paymentMethods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                onChanged: (val) => setState(() => _selectedPaymentMethod = val),
+              ),
+              const SizedBox(height: 20),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: _isSaving ? null : _submit,
+                  child: _isSaving
+                      ? const SizedBox(
+                          height: 20, width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Save Payment'),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

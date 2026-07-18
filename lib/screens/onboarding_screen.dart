@@ -12,7 +12,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
-import 'main_nav_screen.dart';
+import 'set_pin_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -88,9 +88,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           backgroundColor: AppColors.primary,
         ),
       );
-      // Navigate to the main app — replace so back button is disabled
+      // Navigate to PIN setup — the app can't be used without
+      // securing it first. SetPinScreen itself moves on to the
+      // Dashboard once the PIN/password are saved.
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainNavScreen()),
+        MaterialPageRoute(builder: (_) => const SetPinScreen()),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
