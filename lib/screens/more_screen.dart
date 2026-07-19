@@ -6,6 +6,8 @@
 // Keeping these off the main bottom nav keeps it to 5 clean tabs.
 // ============================================================
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -24,6 +26,8 @@ class MoreScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = context.watch<ProfileProvider>().profile;
+    final hasPicture =
+        profile?.profileImagePath != null && File(profile!.profileImagePath!).existsSync();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -43,13 +47,18 @@ class MoreScreen extends StatelessWidget {
                 CircleAvatar(
                   radius: 26,
                   backgroundColor: Colors.white.withOpacity(0.15),
-                  child: Text(
-                    (profile?.businessName.isNotEmpty == true)
-                        ? profile!.businessName[0].toUpperCase()
-                        : 'J',
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
+                  backgroundImage: hasPicture
+                      ? FileImage(File(profile!.profileImagePath!))
+                      : null,
+                  child: hasPicture
+                      ? null
+                      : Text(
+                          (profile?.businessName.isNotEmpty == true)
+                              ? profile!.businessName[0].toUpperCase()
+                              : 'J',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                        ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -94,7 +103,7 @@ class MoreScreen extends StatelessWidget {
             context,
             icon: Icons.picture_as_pdf_outlined,
             iconColor: AppColors.expense,
-            title: 'Year-End Audit Report',
+            title: 'Year-End Financial Report',
             subtitle: 'Generate a formal PDF for GRA or your bank',
             screen: const AuditReportScreen(),
           ),

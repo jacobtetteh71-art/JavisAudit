@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -96,6 +96,18 @@ class DatabaseHelper {
 
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE business_profile ADD COLUMN profile_image_path TEXT');
+    }
+
+    if (oldVersion < 4) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS business_documents (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          doc_type     TEXT    NOT NULL,
+          file_name    TEXT    NOT NULL,
+          file_path    TEXT    NOT NULL,
+          uploaded_at  TEXT    NOT NULL
+        )
+      ''');
     }
   }
 
@@ -215,6 +227,21 @@ class DatabaseHelper {
       'vat_threshold': 750000.0,
       'updated_at': DateTime.now().toIso8601String(),
     });
+
+    // ── Table 6: business_documents ────────────────────────
+    // Advanced Settings feature: lets a business owner attach
+    // PDF copies of certificates/licenses (e.g. Certificate of
+    // Incorporation, SSNIT Clearance) that are commonly needed
+    // when applying for tenders/bids, so they're all in one place.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS business_documents (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_type     TEXT    NOT NULL,
+        file_name    TEXT    NOT NULL,
+        file_path    TEXT    NOT NULL,
+        uploaded_at  TEXT    NOT NULL
+      )
+    ''');
   }
 
   // ══════════════════════════════════════════════════════════
@@ -566,8 +593,55 @@ class DatabaseHelper {
       await txn.delete('income');
       await txn.delete('expenses');
       await txn.delete('business_profile');
+      await txn.delete('business_documents');
       await txn.delete('settings');
     });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // BUSINESS DOCUMENTS METHODS
+  // ══════════════════════════════════════════════════════════
+  // Advanced Settings feature — lets a business owner attach PDF
+  // copies of certificates/licenses commonly needed for tender or
+  // bid applications (e.g. Certificate of Incorporation, SSNIT
+  // Clearance), all kept alongside the rest of the business profile.
+
+  // Insert (or, if this doc_type is being replaced, overwrite) a
+  // saved document record. Each doc_type only ever has one active row.
+  Future<int> upsertBusinessDocument(Map<String, dynamic> doc) async {
+    final db = await database;
+    final existing = await db.query(
+      'business_documents',
+      where: 'doc_type = ?',
+      whereArgs: [doc['doc_type']],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      return await db.update(
+        'business_documents',
+        doc,
+        where: 'doc_type = ?',
+        whereArgs: [doc['doc_type']],
+      );
+    }
+    return await db.insert('business_documents', doc);
+  }
+
+  // Get every attached document, keyed by doc_type for easy lookup
+  Future<List<Map<String, dynamic>>> getBusinessDocuments() async {
+    final db = await database;
+    return await db.query('business_documents', orderBy: 'doc_type ASC');
+  }
+
+  // Remove an attached document record (the underlying PDF file is
+  // removed separately by the caller, which knows its file path)
+  Future<int> deleteBusinessDocument(String docType) async {
+    final db = await database;
+    return await db.delete(
+      'business_documents',
+      where: 'doc_type = ?',
+      whereArgs: [docType],
+    );
   }
 
   // Count of records in each table — shown on Backup screen

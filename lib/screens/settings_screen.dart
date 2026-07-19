@@ -16,6 +16,7 @@ import '../utils/utils.dart';
 import 'onboarding_screen.dart';
 import 'set_pin_screen.dart';
 import 'verify_identity_sheet.dart';
+import 'business_documents_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -257,6 +258,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
 
               const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 12),
+
+              // ── Advanced section ───────────────────────────
+              const Text('Advanced', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Attach PDF copies of certificates and licenses — such as your '
+                      'Certificate of Incorporation or operating license — so they\'re '
+                      'ready whenever you need to apply for a tender or bid.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const BusinessDocumentsScreen()),
+                          );
+                        },
+                        icon: const Icon(Icons.folder_copy_outlined),
+                        label: const Text('Business Documents'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
               const Divider(),
               const SizedBox(height: 12),
 

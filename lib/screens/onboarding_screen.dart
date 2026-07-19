@@ -144,7 +144,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     SizedBox(height: 6),
                     Text(
                       'Tell us about your business. This information will '
-                      'appear on your audit reports and PDF exports.',
+                      'appear on your financial reports and PDF exports.',
                       style: TextStyle(color: AppColors.textMuted, fontSize: 13),
                     ),
                   ],

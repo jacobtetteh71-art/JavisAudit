@@ -106,9 +106,9 @@ class _LockScreenState extends State<LockScreen> {
               ),
               const SizedBox(height: 20),
 
-              // ── Personalized welcome message ─────────────────
+              // ── Personalized logged-out message ───────────────
               Text(
-                'Welcome back${profile != null ? "," : ""}',
+                'Logged out${profile != null ? "," : ""}',
                 style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 15),
               ),
               if (profile != null) ...[

@@ -41,7 +41,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Year-End Audit Report')),
+      appBar: AppBar(title: const Text('Year-End Financial Report')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -62,7 +62,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
             ),
             const SizedBox(height: 20),
 
-            const Text('Select Audit Year', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Select Report Year', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             DropdownButtonFormField<int>(
               value: _selectedYear,
@@ -122,7 +122,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
             children: [
               pw.Text('JavisAudit',
                   style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Year-End Audit Report — $_selectedYear',
+              pw.Text('Year-End Financial Report — $_selectedYear',
                   style: const pw.TextStyle(fontSize: 16)),
               pw.SizedBox(height: 4),
               pw.Text('Generated: ${AppFormat.displayDate(AppFormat.today())}',
@@ -329,7 +329,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
       // launches the native Android share dialog automatically.
       await Printing.sharePdf(
         bytes: await pdf.save(),
-        filename: 'JavisAudit_Audit_Report_$_selectedYear.pdf',
+        filename: 'JavisAudit_Financial_Report_$_selectedYear.pdf',
       );
     } catch (e) {
       if (mounted) {
