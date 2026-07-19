@@ -15,6 +15,11 @@ class Income {
   final String category;
   final String paymentMethod;
   final String? notes;     // Optional — can be null
+  // ── Optional cheque details (only meaningful when paymentMethod == 'Cheque') ──
+  final String? chequeAccountNumber;
+  final String? chequeAccountName;
+  final String? chequeNumber;
+  final String? chequeImagePath;
   final String createdAt;  // ISO 8601 timestamp, e.g. '2026-06-15T10:23:44'
 
   const Income({
@@ -25,6 +30,10 @@ class Income {
     required this.category,
     required this.paymentMethod,
     this.notes,
+    this.chequeAccountNumber,
+    this.chequeAccountName,
+    this.chequeNumber,
+    this.chequeImagePath,
     required this.createdAt,
   });
 
@@ -40,6 +49,10 @@ class Income {
       category:      map['category'] as String,
       paymentMethod: map['payment_method'] as String,
       notes:         map['notes'] as String?,
+      chequeAccountNumber: map['cheque_account_number'] as String?,
+      chequeAccountName:   map['cheque_account_name'] as String?,
+      chequeNumber:        map['cheque_number'] as String?,
+      chequeImagePath:     map['cheque_image_path'] as String?,
       createdAt:     map['created_at'] as String,
     );
   }
@@ -54,6 +67,10 @@ class Income {
       'category':       category,
       'payment_method': paymentMethod,
       'notes':          notes,
+      'cheque_account_number': chequeAccountNumber,
+      'cheque_account_name':   chequeAccountName,
+      'cheque_number':         chequeNumber,
+      'cheque_image_path':     chequeImagePath,
       'created_at':     createdAt,
     };
   }
@@ -94,7 +111,14 @@ class Expense {
   final String description;
   final String category;
   final String paymentMethod;
+  final String paymentStatus;   // 'Paid' | 'Pending' | 'Partial Payment'
+  final double amountPaid;      // Running total of everything paid so far
   final String? receiptNo;   // Optional receipt or invoice number
+  // ── Optional cheque details (only meaningful when paymentMethod == 'Cheque') ──
+  final String? chequeAccountNumber;
+  final String? chequeAccountName;
+  final String? chequeNumber;
+  final String? chequeImagePath;
   final String createdAt;
 
   const Expense({
@@ -104,9 +128,19 @@ class Expense {
     required this.description,
     required this.category,
     required this.paymentMethod,
+    this.paymentStatus = 'Paid',
+    this.amountPaid = 0,
     this.receiptNo,
+    this.chequeAccountNumber,
+    this.chequeAccountName,
+    this.chequeNumber,
+    this.chequeImagePath,
     required this.createdAt,
   });
+
+  // How much of this expense is still owed. Never negative, even if
+  // amountPaid somehow exceeds amount by a rounding fraction.
+  double get balance => (amount - amountPaid) < 0 ? 0 : (amount - amountPaid);
 
   factory Expense.fromMap(Map<String, dynamic> map) {
     return Expense(
@@ -116,7 +150,13 @@ class Expense {
       description:   map['description'] as String,
       category:      map['category'] as String,
       paymentMethod: map['payment_method'] as String,
+      paymentStatus: map['payment_status'] as String? ?? 'Paid',
+      amountPaid:    (map['amount_paid'] as num?)?.toDouble() ?? 0,
       receiptNo:     map['receipt_no'] as String?,
+      chequeAccountNumber: map['cheque_account_number'] as String?,
+      chequeAccountName:   map['cheque_account_name'] as String?,
+      chequeNumber:        map['cheque_number'] as String?,
+      chequeImagePath:     map['cheque_image_path'] as String?,
       createdAt:     map['created_at'] as String,
     );
   }
@@ -128,10 +168,22 @@ class Expense {
       'description':    description,
       'category':       category,
       'payment_method': paymentMethod,
+      'payment_status': paymentStatus,
+      'amount_paid':    amountPaid,
       'receipt_no':     receiptNo,
+      'cheque_account_number': chequeAccountNumber,
+      'cheque_account_name':   chequeAccountName,
+      'cheque_number':         chequeNumber,
+      'cheque_image_path':     chequeImagePath,
       'created_at':     createdAt,
     };
   }
+
+  static const List<String> paymentStatuses = [
+    'Paid',
+    'Pending',
+    'Partial Payment',
+  ];
 
   // 14 expense categories from the document spec
   static const List<String> categories = [
@@ -168,11 +220,17 @@ class Sale {
   final int quantity;
   final double unitPrice;
   final double totalAmount;       // quantity × unitPrice — stored for query speed
+  final double costPrice;         // Optional unit cost price — powers gross profit
   final String paymentMethod;
   final String paymentStatus;     // 'Paid' | 'Pending' | 'Partial Payment'
   final double amountPaid;        // Running total of everything paid so far
   final String? notes;
   final int? incomeId;            // FK to income table (set when status = 'Paid')
+  // ── Optional cheque details (only meaningful when paymentMethod == 'Cheque') ──
+  final String? chequeAccountNumber;
+  final String? chequeAccountName;
+  final String? chequeNumber;
+  final String? chequeImagePath;
   final String createdAt;
 
   const Sale({
@@ -183,17 +241,30 @@ class Sale {
     required this.quantity,
     required this.unitPrice,
     required this.totalAmount,
+    this.costPrice = 0,
     required this.paymentMethod,
     required this.paymentStatus,
     this.amountPaid = 0,
     this.notes,
     this.incomeId,
+    this.chequeAccountNumber,
+    this.chequeAccountName,
+    this.chequeNumber,
+    this.chequeImagePath,
     required this.createdAt,
   });
 
   // How much is still owed on this sale. Never negative, even if
   // amountPaid somehow exceeds totalAmount by a rounding fraction.
   double get balance => (totalAmount - amountPaid) < 0 ? 0 : (totalAmount - amountPaid);
+
+  // Cost of Goods Sold for this line, and what's left after it —
+  // this sale's contribution to gross profit.
+  double get totalCost => quantity * costPrice;
+  double get grossProfit => totalAmount - totalCost;
+  // Gross margin as a percentage of the sale price (0 when there's
+  // no revenue, to avoid a divide-by-zero blowing up the UI).
+  double get grossMarginPercent => totalAmount <= 0 ? 0 : (grossProfit / totalAmount) * 100;
 
   factory Sale.fromMap(Map<String, dynamic> map) {
     return Sale(
@@ -204,11 +275,16 @@ class Sale {
       quantity:        map['quantity'] as int,
       unitPrice:       (map['unit_price'] as num).toDouble(),
       totalAmount:     (map['total_amount'] as num).toDouble(),
+      costPrice:       (map['cost_price'] as num?)?.toDouble() ?? 0,
       paymentMethod:   map['payment_method'] as String,
       paymentStatus:   map['payment_status'] as String,
       amountPaid:      (map['amount_paid'] as num?)?.toDouble() ?? 0,
       notes:           map['notes'] as String?,
       incomeId:        map['income_id'] as int?,
+      chequeAccountNumber: map['cheque_account_number'] as String?,
+      chequeAccountName:   map['cheque_account_name'] as String?,
+      chequeNumber:        map['cheque_number'] as String?,
+      chequeImagePath:     map['cheque_image_path'] as String?,
       createdAt:       map['created_at'] as String,
     );
   }
@@ -221,11 +297,16 @@ class Sale {
       'quantity':         quantity,
       'unit_price':       unitPrice,
       'total_amount':     totalAmount,
+      'cost_price':       costPrice,
       'payment_method':   paymentMethod,
       'payment_status':   paymentStatus,
       'amount_paid':      amountPaid,
       'notes':            notes,
       'income_id':        incomeId,
+      'cheque_account_number': chequeAccountNumber,
+      'cheque_account_name':   chequeAccountName,
+      'cheque_number':         chequeNumber,
+      'cheque_image_path':     chequeImagePath,
       'created_at':       createdAt,
     };
   }
@@ -275,6 +356,51 @@ class SalePayment {
   Map<String, dynamic> toMap() {
     return {
       'sale_id':        saleId,
+      'amount':         amount,
+      'payment_method': paymentMethod,
+      'date':           date,
+      'created_at':     createdAt,
+    };
+  }
+}
+
+// ============================================================
+// models/expense_payment_model.dart  –  Expense Payment History
+// ============================================================
+// One row per installment payment recorded against an Expense that
+// was Pending or Partial Payment. Mirrors SalePayment exactly.
+
+class ExpensePayment {
+  final int? id;
+  final int expenseId;
+  final double amount;
+  final String paymentMethod;
+  final String date;
+  final String createdAt;
+
+  const ExpensePayment({
+    this.id,
+    required this.expenseId,
+    required this.amount,
+    required this.paymentMethod,
+    required this.date,
+    required this.createdAt,
+  });
+
+  factory ExpensePayment.fromMap(Map<String, dynamic> map) {
+    return ExpensePayment(
+      id:            map['id'] as int?,
+      expenseId:     map['expense_id'] as int,
+      amount:        (map['amount'] as num).toDouble(),
+      paymentMethod: map['payment_method'] as String,
+      date:          map['date'] as String,
+      createdAt:     map['created_at'] as String,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'expense_id':     expenseId,
       'amount':         amount,
       'payment_method': paymentMethod,
       'date':           date,

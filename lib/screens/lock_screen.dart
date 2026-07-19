@@ -102,7 +102,12 @@ class _LockScreenState extends State<LockScreen> {
                           width: 96, height: 96, fit: BoxFit.cover,
                         ),
                       )
-                    : const Icon(Icons.storefront, size: 44, color: Colors.white),
+                    : ClipOval(
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Image.asset('assets/app_icon_mark.png', fit: BoxFit.contain),
+                        ),
+                      ),
               ),
               const SizedBox(height: 20),
 

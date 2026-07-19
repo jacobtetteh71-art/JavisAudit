@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
 
 class SalesScreen extends StatefulWidget {
@@ -234,11 +235,13 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   final _unitPriceCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _amountPaidCtrl = TextEditingController(); // Only shown for Partial Payment
+  final _costPriceCtrl = TextEditingController(); // Optional — powers gross profit
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedPaymentMethod;
   String _selectedStatus = 'Paid'; // Default to Paid
   bool _isSaving = false;
+  final _chequeDetails = ChequeDetailsController();
 
   // The live-calculated total — recomputed on every keystroke
   double get _computedTotal {
@@ -247,12 +250,20 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     return qty * price;
   }
 
+  // Live-calculated gross profit for this sale (0 if no cost entered)
+  double get _computedProfit {
+    final qty = int.tryParse(_quantityCtrl.text) ?? 0;
+    final cost = double.tryParse(_costPriceCtrl.text) ?? 0;
+    return _computedTotal - (qty * cost);
+  }
+
   @override
   void initState() {
     super.initState();
     // Listen to changes in quantity/price so the total updates live
     _quantityCtrl.addListener(() => setState(() {}));
     _unitPriceCtrl.addListener(() => setState(() {}));
+    _costPriceCtrl.addListener(() => setState(() {}));
   }
 
   @override
@@ -263,6 +274,8 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     _unitPriceCtrl.dispose();
     _notesCtrl.dispose();
     _amountPaidCtrl.dispose();
+    _costPriceCtrl.dispose();
+    _chequeDetails.dispose();
     super.dispose();
   }
 
@@ -307,10 +320,15 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
       quantity:         int.parse(_quantityCtrl.text.trim()),
       unitPrice:        double.parse(_unitPriceCtrl.text.trim()),
       totalAmount:      _computedTotal,
+      costPrice:        double.tryParse(_costPriceCtrl.text.trim()) ?? 0,
       paymentMethod:    _selectedPaymentMethod!,
       paymentStatus:    _selectedStatus,
       amountPaid:       startingAmountPaid,
       notes:            _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      chequeAccountNumber: _chequeDetails.toMap()['cheque_account_number'],
+      chequeAccountName:   _chequeDetails.toMap()['cheque_account_name'],
+      chequeNumber:        _chequeDetails.toMap()['cheque_number'],
+      chequeImagePath:     _chequeDetails.imagePath,
       createdAt:        DateTime.now().toIso8601String(),
     );
 
@@ -436,6 +454,23 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                 ),
                 const SizedBox(height: 12),
 
+                TextFormField(
+                  controller: _costPriceCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Unit Cost Price (optional)', prefixText: 'GH₵ ', border: OutlineInputBorder(),
+                    helperText: 'What this item cost you — powers gross profit tracking.',
+                    helperMaxLines: 2,
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) return null;
+                    final p = double.tryParse(val);
+                    if (p == null || p < 0) return 'Enter a valid cost, or leave blank';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+
                 // ── Live-calculated total display ──────────────
                 Container(
                   width: double.infinity,
@@ -445,17 +480,37 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: AppColors.gold.withOpacity(0.3)),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
                     children: [
-                      const Text('Total Amount', style: TextStyle(fontWeight: FontWeight.w600)),
-                      // This text rebuilds automatically because we call
-                      // setState() in the controller listeners above
-                      Text(
-                        AppFormat.currency(_computedTotal),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.gold),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Total Amount', style: TextStyle(fontWeight: FontWeight.w600)),
+                          // This text rebuilds automatically because we call
+                          // setState() in the controller listeners above
+                          Text(
+                            AppFormat.currency(_computedTotal),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.gold),
+                          ),
+                        ],
                       ),
+                      if (_costPriceCtrl.text.trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Gross Profit', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                            Text(
+                              AppFormat.currency(_computedProfit),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: _computedProfit >= 0 ? AppColors.income : AppColors.expense),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -467,6 +522,10 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                   items: Income.paymentMethods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
                   onChanged: (val) => setState(() => _selectedPaymentMethod = val),
                 ),
+                if (_selectedPaymentMethod == 'Cheque') ...[
+                  const SizedBox(height: 12),
+                  ChequeDetailsFields(controller: _chequeDetails),
+                ],
                 const SizedBox(height: 12),
 
                 // ── Payment status segmented control ────────────
@@ -700,6 +759,23 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
                           const Text('Balance Owed', style: TextStyle(color: AppColors.textMuted)),
                           Text(AppFormat.currency(sale.balance),
                               style: const TextStyle(color: AppColors.expense, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ],
+                    if (sale.costPrice > 0) ...[
+                      const SizedBox(height: 6),
+                      const Divider(height: 1),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Gross Profit', style: TextStyle(color: AppColors.textMuted)),
+                          Text(
+                            '${AppFormat.currency(sale.grossProfit)}  (${sale.grossMarginPercent.toStringAsFixed(1)}%)',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: sale.grossProfit >= 0 ? AppColors.income : AppColors.expense),
+                          ),
                         ],
                       ),
                     ],

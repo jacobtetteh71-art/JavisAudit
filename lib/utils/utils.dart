@@ -52,6 +52,16 @@ class AppFormat {
     return formatter.format(amount);
   }
 
+  // PDF-safe currency formatter. The ₵ (cedi) character doesn't have
+  // a glyph in the default PDF font used by the `pdf` package, so it
+  // was rendering as a tofu/box-with-an-X placeholder in exported
+  // PDFs. Use a plain "GHc" prefix there instead — every font can
+  // render it, and "c" still clearly reads as cedis.
+  static String pdfCurrency(double amount) {
+    final formatter = NumberFormat('#,##0.00', 'en_US');
+    return 'GHc ${formatter.format(amount)}';
+  }
+
   // Format a date string 'YYYY-MM-DD' → '15 Jun 2026'
   static String displayDate(String isoDate) {
     try {

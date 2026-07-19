@@ -3,8 +3,8 @@
 // ============================================================
 // The very first screen the user sees when opening the app.
 // While showing the logo, it checks the database:
-//  • If no business profile exists → go to OnboardingScreen
-//  • If a profile exists           → go to MainNavScreen
+//  • If no business profile exists → go to WelcomeScreen
+//  • If a profile exists           → go to LockScreen / SetPinScreen
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -12,9 +12,9 @@ import 'package:provider/provider.dart';
 
 import '../providers/providers.dart';
 import '../utils/utils.dart';
-import 'onboarding_screen.dart';
 import 'lock_screen.dart';
 import 'set_pin_screen.dart';
+import 'welcome_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -73,7 +73,10 @@ class _SplashScreenState extends State<SplashScreen>
     final hasCredentials = context.read<AuthProvider>().hasCredentials;
 
     // Decide which screen comes next:
-    //   • No business profile yet          → Onboarding (first launch ever)
+    //   • No business profile yet          → Welcome (first launch ever) —
+    //                                         gives a clear Register / Sign In
+    //                                         choice instead of dropping the
+    //                                         owner straight into setup
     //   • Profile exists, no PIN set up    → Set PIN screen (covers users
     //                                         upgrading from a version of
     //                                         the app that had no login)
@@ -81,7 +84,7 @@ class _SplashScreenState extends State<SplashScreen>
     //                                         every time the app opens)
     late final Widget nextScreen;
     if (!hasProfile) {
-      nextScreen = const OnboardingScreen();
+      nextScreen = const WelcomeScreen();
     } else if (!hasCredentials) {
       nextScreen = const SetPinScreen();
     } else {
@@ -118,14 +121,17 @@ class _SplashScreenState extends State<SplashScreen>
               Container(
                 width: 100,
                 height: 100,
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(24),
                 ),
-                child: const Icon(
-                  Icons.book_outlined, // Ledger book icon
-                  size: 56,
-                  color: Colors.white,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Image.asset(
+                    'assets/app_icon_mark.png',
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

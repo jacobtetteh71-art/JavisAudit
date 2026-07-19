@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 4,
+      version: 6,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -109,6 +109,48 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 5) {
+      // Expenses gain the same Paid / Pending / Partial Payment
+      // tracking that Sales already has, plus a companion
+      // expense_payments table for the installment history.
+      await db.execute("ALTER TABLE expenses ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'Paid'");
+      await db.execute('ALTER TABLE expenses ADD COLUMN amount_paid REAL NOT NULL DEFAULT 0');
+
+      // Every pre-existing expense was, by definition, already fully
+      // settled — backfill amount_paid so balances come out correct.
+      await db.execute('UPDATE expenses SET amount_paid = amount');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS expense_payments (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_id     INTEGER NOT NULL,
+          amount         REAL    NOT NULL CHECK(amount > 0),
+          payment_method TEXT    NOT NULL,
+          date           TEXT    NOT NULL,
+          created_at     TEXT    NOT NULL,
+          FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE
+        )
+      ''');
+
+      // Cheque payment details (optional) for Income, Expenses and
+      // Sales — captured only when the payment method is 'Cheque'.
+      for (final table in ['income', 'expenses', 'sales']) {
+        await db.execute('ALTER TABLE $table ADD COLUMN cheque_account_number TEXT');
+        await db.execute('ALTER TABLE $table ADD COLUMN cheque_account_name TEXT');
+        await db.execute('ALTER TABLE $table ADD COLUMN cheque_number TEXT');
+        await db.execute('ALTER TABLE $table ADD COLUMN cheque_image_path TEXT');
+      }
+    }
+
+    if (oldVersion < 6) {
+      // Unit cost price on each sale — lets us compute Cost of Goods
+      // Sold (COGS) and, from there, gross profit / net profit /
+      // profit margins. Defaults to 0 (no known cost) so it never
+      // breaks existing rows; those sales simply show 100% margin
+      // until the owner fills in a cost price going forward.
+      await db.execute('ALTER TABLE sales ADD COLUMN cost_price REAL NOT NULL DEFAULT 0');
+    }
   }
 
   // ── _createTables: define all five tables ─────────────────
@@ -147,6 +189,10 @@ class DatabaseHelper {
         category       TEXT    NOT NULL,
         payment_method TEXT    NOT NULL,
         notes          TEXT,
+        cheque_account_number TEXT,
+        cheque_account_name   TEXT,
+        cheque_number         TEXT,
+        cheque_image_path     TEXT,
         created_at     TEXT    NOT NULL
       )
     ''');
@@ -161,8 +207,29 @@ class DatabaseHelper {
         description    TEXT    NOT NULL,
         category       TEXT    NOT NULL,
         payment_method TEXT    NOT NULL,
+        payment_status TEXT    NOT NULL DEFAULT 'Paid',
+        amount_paid    REAL    NOT NULL DEFAULT 0,
         receipt_no     TEXT,
+        cheque_account_number TEXT,
+        cheque_account_name   TEXT,
+        cheque_number         TEXT,
+        cheque_image_path     TEXT,
         created_at     TEXT    NOT NULL
+      )
+    ''');
+
+    // ── Table 3b: expense_payments ─────────────────────────
+    // Mirrors sale_payments — one row per installment payment
+    // recorded against an expense that's Pending or Partial.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS expense_payments (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        expense_id     INTEGER NOT NULL,
+        amount         REAL    NOT NULL CHECK(amount > 0),
+        payment_method TEXT    NOT NULL,
+        date           TEXT    NOT NULL,
+        created_at     TEXT    NOT NULL,
+        FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE
       )
     ''');
 
@@ -180,11 +247,16 @@ class DatabaseHelper {
         quantity         INTEGER NOT NULL CHECK(quantity > 0),
         unit_price       REAL    NOT NULL CHECK(unit_price > 0),
         total_amount     REAL    NOT NULL,
+        cost_price       REAL    NOT NULL DEFAULT 0,
         payment_method   TEXT    NOT NULL,
         payment_status   TEXT    NOT NULL DEFAULT 'Paid',
         amount_paid      REAL    NOT NULL DEFAULT 0,
         notes            TEXT,
         income_id        INTEGER,
+        cheque_account_number TEXT,
+        cheque_account_name   TEXT,
+        cheque_number         TEXT,
+        cheque_image_path     TEXT,
         created_at       TEXT    NOT NULL,
         FOREIGN KEY (income_id) REFERENCES income(id)
       )
@@ -410,6 +482,32 @@ class DatabaseHelper {
     return await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
   }
 
+  // ── recordExpensePayment: the "finish paying" operation ─────
+  // Mirrors recordSalePayment — writes the installment history
+  // row and the expense's updated running total in one transaction.
+  Future<void> recordExpensePayment({
+    required int expenseId,
+    required Map<String, dynamic> updatedExpense,
+    required Map<String, dynamic> payment,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.insert('expense_payments', payment);
+      await txn.update('expenses', updatedExpense, where: 'id = ?', whereArgs: [expenseId]);
+    });
+  }
+
+  // All installment payments recorded against one expense, oldest first
+  Future<List<Map<String, dynamic>>> getPaymentsForExpense(int expenseId) async {
+    final db = await database;
+    return await db.query(
+      'expense_payments',
+      where: 'expense_id = ?',
+      whereArgs: [expenseId],
+      orderBy: 'created_at ASC',
+    );
+  }
+
   // ══════════════════════════════════════════════════════════
   // SALES METHODS
   // ══════════════════════════════════════════════════════════
@@ -522,6 +620,78 @@ class DatabaseHelper {
   }
 
   // ══════════════════════════════════════════════════════════
+  // PROFIT / ANALYTICS METHODS
+  // ══════════════════════════════════════════════════════════
+  // Cost of Goods Sold (COGS) = Σ(quantity × cost_price) across
+  // sales. Combined with Income and Expenses elsewhere, this is
+  // what powers Gross Profit / Net Profit / margins.
+
+  Future<double> getAnnualCogs(int year) async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT COALESCE(SUM(quantity * cost_price), 0) AS total
+      FROM sales
+      WHERE strftime('%Y', date) = ?
+    ''', [year.toString()]);
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  // Monthly COGS for the current month (Dashboard profit cards)
+  Future<double> getMonthlyCogs() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT COALESCE(SUM(quantity * cost_price), 0) AS total
+      FROM sales
+      WHERE strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
+    ''');
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  // COGS broken down by month, for the Gross Profit trend chart
+  Future<List<Map<String, dynamic>>> getMonthlyCogsBreakdown(int year) async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT strftime('%m', date) AS month,
+             COALESCE(SUM(quantity * cost_price), 0) AS total
+      FROM sales
+      WHERE strftime('%Y', date) = ?
+      GROUP BY month
+      ORDER BY month
+    ''', [year.toString()]);
+  }
+
+  // Total sales value by month (distinct from Income, which only
+  // counts sales once they're fully Paid) — used on the Analytics
+  // screen to compare sales volume period over period.
+  Future<List<Map<String, dynamic>>> getMonthlySalesBreakdown(int year) async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT strftime('%m', date) AS month,
+             COALESCE(SUM(total_amount), 0) AS total
+      FROM sales
+      WHERE strftime('%Y', date) = ?
+      GROUP BY month
+      ORDER BY month
+    ''', [year.toString()]);
+  }
+
+  // Every distinct year that has at least one income, expense, or
+  // sales record — powers the year picker on the Analytics screen.
+  Future<List<int>> getYearsWithData() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT DISTINCT strftime('%Y', date) AS y FROM income
+      UNION SELECT DISTINCT strftime('%Y', date) AS y FROM expenses
+      UNION SELECT DISTINCT strftime('%Y', date) AS y FROM sales
+      ORDER BY y DESC
+    ''');
+    return result
+        .map((row) => int.tryParse(row['y'] as String? ?? ''))
+        .whereType<int>()
+        .toList();
+  }
+
+  // ══════════════════════════════════════════════════════════
   // BACKUP / RESTORE
   // ══════════════════════════════════════════════════════════
 
@@ -590,6 +760,7 @@ class DatabaseHelper {
     await db.transaction((txn) async {
       await txn.delete('sale_payments');
       await txn.delete('sales');
+      await txn.delete('expense_payments');
       await txn.delete('income');
       await txn.delete('expenses');
       await txn.delete('business_profile');

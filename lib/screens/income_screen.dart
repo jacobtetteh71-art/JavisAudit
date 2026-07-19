@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
 
 class IncomeScreen extends StatefulWidget {
@@ -328,12 +329,14 @@ class _AddIncomeSheetState extends State<_AddIncomeSheet> {
   String? _selectedCategory;
   String? _selectedPaymentMethod;
   bool _isSaving = false;
+  final _chequeDetails = ChequeDetailsController();
 
   @override
   void dispose() {
     _amountCtrl.dispose();
     _descriptionCtrl.dispose();
     _notesCtrl.dispose();
+    _chequeDetails.dispose();
     super.dispose();
   }
 
@@ -373,6 +376,10 @@ class _AddIncomeSheetState extends State<_AddIncomeSheet> {
       category:      _selectedCategory!,
       paymentMethod: _selectedPaymentMethod!,
       notes:         _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      chequeAccountNumber: _chequeDetails.toMap()['cheque_account_number'],
+      chequeAccountName:   _chequeDetails.toMap()['cheque_account_name'],
+      chequeNumber:        _chequeDetails.toMap()['cheque_number'],
+      chequeImagePath:     _chequeDetails.imagePath,
       createdAt:     DateTime.now().toIso8601String(),
     );
 
@@ -522,6 +529,10 @@ class _AddIncomeSheetState extends State<_AddIncomeSheet> {
                       .toList(),
                   onChanged: (val) => setState(() => _selectedPaymentMethod = val),
                 ),
+                if (_selectedPaymentMethod == 'Cheque') ...[
+                  const SizedBox(height: 12),
+                  ChequeDetailsFields(controller: _chequeDetails),
+                ],
                 const SizedBox(height: 12),
 
                 // ── Notes (optional) ──────────────────────────

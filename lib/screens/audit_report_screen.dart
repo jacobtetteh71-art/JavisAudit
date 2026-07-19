@@ -103,10 +103,14 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
       final expenseRows  = await db.getExpensesForYear(_selectedYear);
       final salesRows    = await db.getSalesForYear(_selectedYear);
       final turnover     = await db.getAnnualTurnover(_selectedYear);
+      final cogs         = await db.getAnnualCogs(_selectedYear);
 
       final totalIncome   = incomeRows.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
       final totalExpenses = expenseRows.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
-      final netProfit     = totalIncome - totalExpenses;
+      final grossProfit   = totalIncome - cogs;
+      final netProfit     = grossProfit - totalExpenses;
+      final grossMargin   = totalIncome <= 0 ? 0.0 : (grossProfit / totalIncome) * 100;
+      final netMargin     = totalIncome <= 0 ? 0.0 : (netProfit / totalIncome) * 100;
       final vatPercent    = (turnover / 750000 * 100).clamp(0, 999);
 
       // Step 2: Build the PDF document
@@ -143,10 +147,13 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
               // Executive summary
               pw.Text('Executive Summary', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 6),
-              _pdfRow('Total Income', AppFormat.currency(totalIncome)),
-              _pdfRow('Total Expenses', AppFormat.currency(totalExpenses)),
-              _pdfRow(netProfit >= 0 ? 'Net Profit' : 'Net Loss', AppFormat.currency(netProfit)),
-              _pdfRow('Cumulative Turnover', AppFormat.currency(turnover)),
+              _pdfRow('Total Income', AppFormat.pdfCurrency(totalIncome)),
+              _pdfRow('Cost of Goods Sold (COGS)', AppFormat.pdfCurrency(cogs)),
+              _pdfRow('Gross Profit', '${AppFormat.pdfCurrency(grossProfit)}  (${grossMargin.toStringAsFixed(1)}% margin)'),
+              _pdfRow('Total Expenses', AppFormat.pdfCurrency(totalExpenses)),
+              _pdfRow(netProfit >= 0 ? 'Net Profit' : 'Net Loss',
+                  '${AppFormat.pdfCurrency(netProfit)}  (${netMargin.toStringAsFixed(1)}% margin)'),
+              _pdfRow('Cumulative Turnover', AppFormat.pdfCurrency(turnover)),
               _pdfRow('VAT Threshold Status',
                   '${vatPercent.toStringAsFixed(1)}% of GHS 750,000'
                   '${turnover >= 750000 ? " — EXCEEDED" : ""}'),

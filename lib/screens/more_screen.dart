@@ -15,6 +15,7 @@ import '../providers/providers.dart';
 import '../utils/utils.dart';
 import 'vat_tracker_screen.dart';
 import 'reports_screen.dart';
+import 'analytics_screen.dart';
 import 'audit_report_screen.dart';
 import 'backup_screen.dart';
 import 'settings_screen.dart';
@@ -90,6 +91,14 @@ class MoreScreen extends StatelessWidget {
             title: 'Financial Reports',
             subtitle: 'Weekly, monthly, and category breakdowns',
             screen: const ReportsScreen(),
+          ),
+          _menuTile(
+            context,
+            icon: Icons.insights_outlined,
+            iconColor: AppColors.income,
+            title: 'Analytics',
+            subtitle: 'Compare income, expenses, and profit year over year',
+            screen: const AnalyticsScreen(),
           ),
           _menuTile(
             context,

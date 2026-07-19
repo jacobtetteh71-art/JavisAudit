@@ -28,6 +28,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Local state for values that don't have their own provider
   double _monthlyIncome = 0;
   double _monthlyExpenses = 0;
+  double _monthlyCogs = 0;
   List<Map<String, dynamic>> _recentTransactions = [];
   List<Map<String, dynamic>> _incomeChartData = [];
   List<Map<String, dynamic>> _expenseChartData = [];
@@ -55,6 +56,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       db.getRecentTransactions(),
       db.getMonthlyIncomeBreakdown(currentYear),
       db.getMonthlyExpenseBreakdown(currentYear),
+      db.getMonthlyCogs(),
     ]);
 
     if (!mounted) return;
@@ -65,6 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _recentTransactions  = results[2] as List<Map<String, dynamic>>;
       _incomeChartData     = results[3] as List<Map<String, dynamic>>;
       _expenseChartData    = results[4] as List<Map<String, dynamic>>;
+      _monthlyCogs         = results[5] as double;
       _isLoading = false;
     });
 
@@ -86,7 +89,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final profile = context.watch<ProfileProvider>().profile;
     final vat = context.watch<VatProvider>();
 
-    final netProfit = _monthlyIncome - _monthlyExpenses;
+    final grossProfit = _monthlyIncome - _monthlyCogs;
+    final trueNetProfit = grossProfit - _monthlyExpenses;
+    final grossMarginPercent = _monthlyIncome <= 0 ? 0.0 : (grossProfit / _monthlyIncome) * 100;
+    final netMarginPercent = _monthlyIncome <= 0 ? 0.0 : (trueNetProfit / _monthlyIncome) * 100;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -167,10 +173,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     // ── Net Profit Card (full width) ─────────
                     _kpiCard(
                       label: 'Net Profit (This Month)',
-                      value: AppFormat.currency(netProfit),
-                      icon: netProfit >= 0 ? Icons.check_circle : Icons.warning,
-                      color: netProfit >= 0 ? AppColors.income : AppColors.expense,
+                      value: AppFormat.currency(trueNetProfit),
+                      icon: trueNetProfit >= 0 ? Icons.check_circle : Icons.warning,
+                      color: trueNetProfit >= 0 ? AppColors.income : AppColors.expense,
                       fullWidth: true,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Gross Profit + Margins Row ────────────
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _kpiCard(
+                            label: 'Gross Profit',
+                            value: AppFormat.currency(grossProfit),
+                            icon: Icons.point_of_sale_outlined,
+                            color: grossProfit >= 0 ? AppColors.gold : AppColors.expense,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _marginsCard(grossMarginPercent, netMarginPercent),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
 
@@ -205,6 +230,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
             ),
+    );
+  }
+
+  // ── _marginsCard: shows Gross & Net margin % side by side ──
+  Widget _marginsCard(double grossMarginPercent, double netMarginPercent) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Profit Margins', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Gross', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              Text('${grossMarginPercent.toStringAsFixed(1)}%',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.gold)),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Net', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              Text('${netMarginPercent.toStringAsFixed(1)}%',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: netMarginPercent >= 0 ? AppColors.income : AppColors.expense)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
