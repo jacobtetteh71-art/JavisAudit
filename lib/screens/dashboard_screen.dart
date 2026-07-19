@@ -6,6 +6,8 @@
 // the VAT progress bar, and the 10 most recent transactions.
 // ============================================================
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -13,6 +15,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../database/database_helper.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import 'profile_picture_picker.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -89,6 +92,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(profile?.businessName ?? 'JavisAudit'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: GestureDetector(
+              onTap: () => showProfilePicturePicker(context),
+              child: CircleAvatar(
+                radius: 18,
+                backgroundColor: Colors.white24,
+                backgroundImage: (profile?.profileImagePath != null &&
+                        File(profile!.profileImagePath!).existsSync())
+                    ? FileImage(File(profile.profileImagePath!))
+                    : null,
+                child: (profile?.profileImagePath == null ||
+                        !File(profile!.profileImagePath!).existsSync())
+                    ? const Icon(Icons.person, color: Colors.white, size: 20)
+                    : null,
+              ),
+            ),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

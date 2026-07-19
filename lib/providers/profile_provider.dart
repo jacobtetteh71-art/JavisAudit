@@ -53,4 +53,27 @@ class ProfileProvider extends ChangeNotifier {
       return false;
     }
   }
+
+  // Update JUST the profile picture — used by the camera/gallery
+  // picker on the Dashboard, without needing to touch any other field.
+  // Pass null to remove the current photo.
+  Future<bool> updateProfileImage(String? imagePath) async {
+    if (_profile == null) return false;
+    final current = _profile!;
+    final updated = BusinessProfile(
+      id: current.id,
+      businessName: current.businessName,
+      ownerName: current.ownerName,
+      businessType: current.businessType,
+      phone: current.phone,
+      email: current.email,
+      location: current.location,
+      graTin: current.graTin,
+      vatNumber: current.vatNumber,
+      profileImagePath: imagePath, // null explicitly removes the photo
+      createdAt: current.createdAt,
+      updatedAt: current.updatedAt,
+    );
+    return await updateProfile(updated);
+  }
 }

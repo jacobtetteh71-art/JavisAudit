@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import 'verify_identity_sheet.dart';
 
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
@@ -158,7 +159,7 @@ class _ExpenseListTile extends StatelessWidget {
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       confirmDismiss: (_) async {
-        return await showDialog<bool>(
+        final confirmedIntent = await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(
                 title: const Text('Delete this entry?'),
@@ -174,6 +175,10 @@ class _ExpenseListTile extends StatelessWidget {
               ),
             ) ??
             false;
+
+        if (!confirmedIntent) return false;
+        if (!context.mounted) return false;
+        return await verifyIdentity(context, reason: 'delete this entry');
       },
       onDismissed: (_) => context.read<ExpenseProvider>().deleteExpense(expense.id!),
       child: InkWell(

@@ -297,6 +297,7 @@ class BusinessProfile {
   final String? location;
   final String? graTin;
   final String? vatNumber;
+  final String? profileImagePath; // Local file path to the chosen profile picture
   final String createdAt;
   final String? updatedAt;
 
@@ -310,39 +311,61 @@ class BusinessProfile {
     this.location,
     this.graTin,
     this.vatNumber,
+    this.profileImagePath,
     required this.createdAt,
     this.updatedAt,
   });
 
   factory BusinessProfile.fromMap(Map<String, dynamic> map) {
     return BusinessProfile(
-      id:           map['id'] as int?,
-      businessName: map['business_name'] as String,
-      ownerName:    map['owner_name'] as String,
-      businessType: map['business_type'] as String,
-      phone:        map['phone'] as String?,
-      email:        map['email'] as String?,
-      location:     map['location'] as String?,
-      graTin:       map['gra_tin'] as String?,
-      vatNumber:    map['vat_number'] as String?,
-      createdAt:    map['created_at'] as String,
-      updatedAt:    map['updated_at'] as String?,
+      id:               map['id'] as int?,
+      businessName:     map['business_name'] as String,
+      ownerName:        map['owner_name'] as String,
+      businessType:     map['business_type'] as String,
+      phone:            map['phone'] as String?,
+      email:            map['email'] as String?,
+      location:         map['location'] as String?,
+      graTin:           map['gra_tin'] as String?,
+      vatNumber:        map['vat_number'] as String?,
+      profileImagePath: map['profile_image_path'] as String?,
+      createdAt:        map['created_at'] as String,
+      updatedAt:        map['updated_at'] as String?,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'business_name': businessName,
-      'owner_name':    ownerName,
-      'business_type': businessType,
-      'phone':         phone,
-      'email':         email,
-      'location':      location,
-      'gra_tin':       graTin,
-      'vat_number':    vatNumber,
-      'created_at':    createdAt,
-      'updated_at':    updatedAt,
+      'business_name':      businessName,
+      'owner_name':         ownerName,
+      'business_type':      businessType,
+      'phone':              phone,
+      'email':              email,
+      'location':           location,
+      'gra_tin':            graTin,
+      'vat_number':         vatNumber,
+      'profile_image_path': profileImagePath,
+      'created_at':         createdAt,
+      'updated_at':         updatedAt,
     };
+  }
+
+  // ── copyWith: used when updating JUST the profile picture,
+  // without needing to reconstruct every other field manually
+  BusinessProfile copyWith({String? profileImagePath}) {
+    return BusinessProfile(
+      id: id,
+      businessName: businessName,
+      ownerName: ownerName,
+      businessType: businessType,
+      phone: phone,
+      email: email,
+      location: location,
+      graTin: graTin,
+      vatNumber: vatNumber,
+      profileImagePath: profileImagePath ?? this.profileImagePath,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
   }
 
   // 12 business type options from the document spec

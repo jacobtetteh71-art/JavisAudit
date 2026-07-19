@@ -20,6 +20,13 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
 
+    <!-- Required to take a profile picture photo via image_picker.
+         Gallery selection does NOT need a permission declaration here —
+         Android's built-in Photo Picker (API 33+) and image_picker's own
+         legacy handling cover that without extra entries. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
     <application
         android:label="JavisAudit"
         android:name="${applicationName}"

@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import 'verify_identity_sheet.dart';
 
 class SalesScreen extends StatefulWidget {
   const SalesScreen({super.key});
@@ -126,7 +127,7 @@ class _SaleListTile extends StatelessWidget {
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       confirmDismiss: (_) async {
-        return await showDialog<bool>(
+        final confirmedIntent = await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(
                 title: const Text('Delete this sale?'),
@@ -141,6 +142,10 @@ class _SaleListTile extends StatelessWidget {
               ),
             ) ??
             false;
+
+        if (!confirmedIntent) return false;
+        if (!context.mounted) return false;
+        return await verifyIdentity(context, reason: 'delete this sale');
       },
       onDismissed: (_) => context.read<SalesProvider>().deleteSale(sale.id!),
       child: InkWell(

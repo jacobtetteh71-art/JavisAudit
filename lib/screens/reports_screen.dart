@@ -47,7 +47,15 @@ class _ReportsScreenState extends State<ReportsScreen>
           controller: _tabController,
           isScrollable: true,
           indicatorColor: Colors.white,
-          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          indicatorWeight: 3,
+          // FIX: without these, unselected tab labels default to a
+          // low-contrast color that's nearly invisible against the
+          // dark green header — explicitly set both to white so
+          // every tab is clearly readable, selected or not.
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          unselectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           tabs: const [
             Tab(text: 'Weekly'),
             Tab(text: 'Monthly'),

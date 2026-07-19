@@ -11,6 +11,8 @@
 //      backup password set up during onboarding
 // ============================================================
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -71,6 +73,12 @@ class _LockScreenState extends State<LockScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Read the business profile so we can personalize the greeting
+    // and show the owner's chosen profile picture (if any)
+    final profile = context.watch<ProfileProvider>().profile;
+    final hasPicture =
+        profile?.profileImagePath != null && File(profile!.profileImagePath!).existsSync();
+
     return Scaffold(
       backgroundColor: AppColors.primaryDark,
       body: SafeArea(
@@ -79,23 +87,49 @@ class _LockScreenState extends State<LockScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // ── Profile picture / logo, replacing the plain lock icon ──
               Container(
-                width: 80, height: 80,
+                width: 96, height: 96,
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(20),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
                 ),
-                child: const Icon(Icons.lock_outline, size: 42, color: Colors.white),
+                child: hasPicture
+                    ? ClipOval(
+                        child: Image.file(
+                          File(profile!.profileImagePath!),
+                          width: 96, height: 96, fit: BoxFit.cover,
+                        ),
+                      )
+                    : const Icon(Icons.storefront, size: 44, color: Colors.white),
               ),
               const SizedBox(height: 20),
-              const Text(
-                'JavisAudit is Locked',
-                style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
+
+              // ── Personalized welcome message ─────────────────
               Text(
-                _usePasswordInstead ? 'Enter your backup password' : 'Enter your PIN to continue',
-                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
+                'Welcome back${profile != null ? "," : ""}',
+                style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 15),
+              ),
+              if (profile != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  profile.businessName,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.lock_outline, size: 14, color: Colors.white70),
+                  const SizedBox(width: 6),
+                  Text(
+                    _usePasswordInstead ? 'Enter your backup password' : 'Enter your PIN to continue',
+                    style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
+                  ),
+                ],
               ),
               const SizedBox(height: 32),
 

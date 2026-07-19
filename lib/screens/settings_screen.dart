@@ -15,6 +15,7 @@ import '../providers/providers.dart';
 import '../utils/utils.dart';
 import 'onboarding_screen.dart';
 import 'set_pin_screen.dart';
+import 'verify_identity_sheet.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -76,6 +77,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
+
+    // Confirm it's really the account owner making this change,
+    // before committing the update
+    final verified = await verifyIdentity(context, reason: 'update the business profile');
+    if (!verified || !mounted) return;
 
     setState(() => _isSaving = true);
 
@@ -152,6 +158,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (secondConfirm != true || !mounted) return;
+
+    // Final gate: confirm PIN/password before this irreversible
+    // action actually goes through
+    final verified = await verifyIdentity(context, reason: 'delete all data');
+    if (!verified || !mounted) return;
 
     // Perform the deletion
     await DatabaseHelper.instance.deleteAllData();
@@ -274,7 +285,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           foregroundColor: AppColors.primary,
                           side: const BorderSide(color: AppColors.primary),
                         ),
-                        onPressed: () {
+                        onPressed: () async {
+                          // Must prove you're the current owner before
+                          // you're allowed to set a NEW PIN/password
+                          final verified =
+                              await verifyIdentity(context, reason: 'change your PIN & password');
+                          if (!verified || !context.mounted) return;
+
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const SetPinScreen(isChangingCredentials: true),

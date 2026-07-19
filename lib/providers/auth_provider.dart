@@ -103,4 +103,23 @@ class AuthProvider extends ChangeNotifier {
     _isLoggedIn = false;
     notifyListeners();
   }
+
+  // ── confirmPin / confirmPassword: "verify it's really you" ──
+  // Used for re-authentication checks INSIDE the app — e.g. before
+  // changing the PIN, editing the business profile, deleting a
+  // record, or restoring a backup. Unlike verifyPin/verifyPassword
+  // (used on the Lock Screen), these do NOT change _isLoggedIn —
+  // the user is already logged in; we're just double-checking
+  // their identity for one sensitive action.
+  Future<bool> confirmPin(String pin) async {
+    final row = await DatabaseHelper.instance.getAuthCredentials();
+    if (row == null || row['pin_hash'] == null || row['auth_salt'] == null) return false;
+    return AuthHelper.verify(pin, row['auth_salt'] as String, row['pin_hash'] as String);
+  }
+
+  Future<bool> confirmPassword(String password) async {
+    final row = await DatabaseHelper.instance.getAuthCredentials();
+    if (row == null || row['password_hash'] == null || row['auth_salt'] == null) return false;
+    return AuthHelper.verify(password, row['auth_salt'] as String, row['password_hash'] as String);
+  }
 }

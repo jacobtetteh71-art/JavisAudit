@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -65,6 +65,8 @@ class DatabaseHelper {
   //   • login security columns on `settings` (pin_hash, password_hash, auth_salt)
   //   • `amount_paid` column on `sales` (tracks partial payments)
   //   • the new `sale_payments` table (one row per installment payment)
+  // version 2 → 3 adds:
+  //   • `profile_image_path` column on `business_profile` (profile picture)
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE settings ADD COLUMN pin_hash TEXT');
@@ -91,6 +93,10 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE business_profile ADD COLUMN profile_image_path TEXT');
+    }
   }
 
   // ── _createTables: define all five tables ─────────────────
@@ -102,17 +108,18 @@ class DatabaseHelper {
     // Stores the business identity used in reports and PDFs.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS business_profile (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        business_name TEXT    NOT NULL,
-        owner_name    TEXT    NOT NULL,
-        business_type TEXT    NOT NULL,
-        phone         TEXT,
-        email         TEXT,
-        location      TEXT,
-        gra_tin       TEXT,
-        vat_number    TEXT,
-        created_at    TEXT    NOT NULL,
-        updated_at    TEXT
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_name       TEXT    NOT NULL,
+        owner_name          TEXT    NOT NULL,
+        business_type       TEXT    NOT NULL,
+        phone               TEXT,
+        email               TEXT,
+        location            TEXT,
+        gra_tin             TEXT,
+        vat_number          TEXT,
+        profile_image_path  TEXT,
+        created_at          TEXT    NOT NULL,
+        updated_at          TEXT
       )
     ''');
 

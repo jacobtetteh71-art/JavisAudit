@@ -16,6 +16,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../utils/utils.dart';
+import 'verify_identity_sheet.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key});
@@ -48,6 +49,11 @@ class _BackupScreenState extends State<BackupScreen> {
 
   // ── _exportBackup ─────────────────────────────────────────
   Future<void> _exportBackup() async {
+    // Exporting shares all financial data outside the app —
+    // confirm identity first
+    final verified = await verifyIdentity(context, reason: 'export a backup');
+    if (!verified || !mounted) return;
+
     setState(() => _isProcessing = true);
     try {
       // Step 1: Pull all data from every table as a nested Map
@@ -92,6 +98,11 @@ class _BackupScreenState extends State<BackupScreen> {
     // Step 1: Two-step confirmation — this is a DESTRUCTIVE action
     final confirmed = await _confirmRestore();
     if (!confirmed) return;
+    if (!mounted) return;
+
+    // Step 1b: Confirm identity before this destructive action proceeds
+    final verified = await verifyIdentity(context, reason: 'restore from backup');
+    if (!verified || !mounted) return;
 
     setState(() => _isProcessing = true);
     try {

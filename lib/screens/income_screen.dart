@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import 'verify_identity_sheet.dart';
 
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
@@ -195,7 +196,7 @@ class _IncomeListTile extends StatelessWidget {
       ),
       // confirmDismiss shows a dialog BEFORE actually removing the item
       confirmDismiss: (_) async {
-        return await showDialog<bool>(
+        final confirmedIntent = await showDialog<bool>(
               context: context,
               builder: (ctx) => AlertDialog(
                 title: const Text('Delete this entry?'),
@@ -216,6 +217,13 @@ class _IncomeListTile extends StatelessWidget {
               ),
             ) ??
             false; // if dialog dismissed without choice, treat as "don't delete"
+
+        if (!confirmedIntent) return false;
+        if (!context.mounted) return false;
+
+        // Extra security step: confirm PIN/password before the
+        // deletion actually goes through
+        return await verifyIdentity(context, reason: 'delete this entry');
       },
       // onDismissed runs AFTER confirmDismiss returns true
       onDismissed: (_) {

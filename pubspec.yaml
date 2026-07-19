@@ -66,6 +66,10 @@ dependencies:
   # (we never store the actual PIN/password — only a salted hash of it)
   crypto: ^3.0.3
 
+  # image_picker: lets the user pick a profile picture from the
+  # device camera or photo gallery
+  image_picker: ^1.1.2
+
   # cupertino_icons: provides the default iOS-style icons (used by Flutter)
   cupertino_icons: ^1.0.8
 
