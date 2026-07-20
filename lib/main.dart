@@ -19,7 +19,6 @@ import 'providers/sales_provider.dart';
 import 'providers/vat_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/auth_provider.dart';
-import 'providers/inventory_provider.dart';
 import 'screens/splash_screen.dart';
 
 // ── Global notification plugin instance ─────────────────────
@@ -65,6 +64,18 @@ Future<void> main() async {
   // initialise() registers the app with the Android notification system
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
+  // ── Step 3b: Request the runtime notification permission ───
+  // On Android 13+ (API 33+), declaring POST_NOTIFICATIONS in the
+  // manifest is NOT enough — the app must also ask at runtime, or
+  // every notification silently fails to show with no error at all.
+  // This was the root cause of VAT threshold alerts never appearing.
+  final androidPlugin = flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.requestNotificationsPermission();
+  // Also request the exact-alarm permission declared in the manifest,
+  // so any future scheduled (not just instant) alerts work too.
+  await androidPlugin?.requestExactAlarmsPermission();
+
   // ── Step 3b: Request runtime notification permission ────
   // On Android 13+ (API 33+), declaring POST_NOTIFICATIONS in the
   // manifest is not enough — the app must also ask at runtime, or
@@ -106,10 +117,6 @@ Future<void> main() async {
         // AuthProvider: manages the login PIN/password and the
         // current session's locked/unlocked state
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-
-        // InventoryProvider: basic stock tracking, optionally
-        // linked from Sales to auto-reduce quantity on hand
-        ChangeNotifierProvider(create: (_) => InventoryProvider()),
       ],
       child: const MyApp(),
     ),

@@ -153,35 +153,35 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 7) {
-      // Links a sale to a specific inventory item, so selling it can
-      // automatically reduce the item's stock on hand. Optional —
-      // freeform sales with no matching inventory item stay null.
-      await db.execute('ALTER TABLE sales ADD COLUMN inventory_item_id INTEGER');
-
+      // Recurring expense templates — rent, salaries, utilities —
+      // saved once, logged again with one tap.
       await db.execute('''
-        CREATE TABLE IF NOT EXISTS inventory_items (
-          id               INTEGER PRIMARY KEY AUTOINCREMENT,
-          item_name        TEXT    NOT NULL UNIQUE,
-          quantity_on_hand INTEGER NOT NULL DEFAULT 0,
-          cost_price       REAL    NOT NULL DEFAULT 0,
-          selling_price    REAL    NOT NULL DEFAULT 0,
-          reorder_level    INTEGER NOT NULL DEFAULT 5,
-          created_at       TEXT    NOT NULL,
-          updated_at       TEXT
-        )
-      ''');
-
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS expense_templates (
+        CREATE TABLE IF NOT EXISTS recurring_expense_templates (
           id             INTEGER PRIMARY KEY AUTOINCREMENT,
           description    TEXT    NOT NULL,
-          amount         REAL    NOT NULL CHECK(amount > 0),
           category       TEXT    NOT NULL,
+          amount         REAL    NOT NULL,
           payment_method TEXT    NOT NULL,
-          notes          TEXT,
           created_at     TEXT    NOT NULL
         )
       ''');
+
+      // Basic inventory / stock count, tied to Sales
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS inventory_items (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          name                TEXT    NOT NULL,
+          stock_quantity      INTEGER NOT NULL DEFAULT 0,
+          cost_price          REAL    NOT NULL DEFAULT 0,
+          selling_price       REAL    NOT NULL DEFAULT 0,
+          low_stock_threshold INTEGER NOT NULL DEFAULT 5,
+          created_at          TEXT    NOT NULL
+        )
+      ''');
+
+      // Optional link from a sale back to the inventory item it sold
+      // (nullable — sales can still be free-text with no linked item)
+      await db.execute('ALTER TABLE sales ADD COLUMN inventory_item_id INTEGER');
     }
   }
 
@@ -280,12 +280,12 @@ class DatabaseHelper {
         unit_price       REAL    NOT NULL CHECK(unit_price > 0),
         total_amount     REAL    NOT NULL,
         cost_price       REAL    NOT NULL DEFAULT 0,
+        inventory_item_id INTEGER,
         payment_method   TEXT    NOT NULL,
         payment_status   TEXT    NOT NULL DEFAULT 'Paid',
         amount_paid      REAL    NOT NULL DEFAULT 0,
         notes            TEXT,
         income_id        INTEGER,
-        inventory_item_id INTEGER,
         cheque_account_number TEXT,
         cheque_account_name   TEXT,
         cheque_number         TEXT,
@@ -348,34 +348,32 @@ class DatabaseHelper {
       )
     ''');
 
-    // ── Table 7: inventory_items ────────────────────────────
-    // Basic stock tracking, optionally linked from Sales so a
-    // completed sale can automatically reduce quantity_on_hand.
+    // ── Table 7: recurring_expense_templates ────────────────
+    // Rent, salaries, utilities — saved once, logged again in
+    // one tap from the Expenses screen.
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS inventory_items (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_name        TEXT    NOT NULL UNIQUE,
-        quantity_on_hand INTEGER NOT NULL DEFAULT 0,
-        cost_price       REAL    NOT NULL DEFAULT 0,
-        selling_price    REAL    NOT NULL DEFAULT 0,
-        reorder_level    INTEGER NOT NULL DEFAULT 5,
-        created_at       TEXT    NOT NULL,
-        updated_at       TEXT
+      CREATE TABLE IF NOT EXISTS recurring_expense_templates (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        description    TEXT    NOT NULL,
+        category       TEXT    NOT NULL,
+        amount         REAL    NOT NULL,
+        payment_method TEXT    NOT NULL,
+        created_at     TEXT    NOT NULL
       )
     ''');
 
-    // ── Table 8: expense_templates ──────────────────────────
-    // Recurring expenses (rent, salaries, utilities) saved once
-    // and re-logged with a single tap instead of retyping monthly.
+    // ── Table 8: inventory_items ─────────────────────────────
+    // Basic stock count per item, tied to Sales via
+    // sales.inventory_item_id.
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS expense_templates (
-        id             INTEGER PRIMARY KEY AUTOINCREMENT,
-        description    TEXT    NOT NULL,
-        amount         REAL    NOT NULL CHECK(amount > 0),
-        category       TEXT    NOT NULL,
-        payment_method TEXT    NOT NULL,
-        notes          TEXT,
-        created_at     TEXT    NOT NULL
+      CREATE TABLE IF NOT EXISTS inventory_items (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        name                TEXT    NOT NULL,
+        stock_quantity      INTEGER NOT NULL DEFAULT 0,
+        cost_price          REAL    NOT NULL DEFAULT 0,
+        selling_price       REAL    NOT NULL DEFAULT 0,
+        low_stock_threshold INTEGER NOT NULL DEFAULT 5,
+        created_at          TEXT    NOT NULL
       )
     ''');
   }
@@ -630,39 +628,120 @@ class DatabaseHelper {
   }
 
   // ══════════════════════════════════════════════════════════
-  // CUSTOMER LEDGER
+  // CUSTOMER LEDGER (aggregate balance owed, per customer)
   // ══════════════════════════════════════════════════════════
-  // Aggregates every sale by customer name, so the owner can see
-  // at a glance who owes what — instead of hunting through
-  // individual sales one at a time.
 
+  // One row per distinct customer name that appears on at least one
+  // sale, with their totals rolled up across every sale they've
+  // ever been on — this is what "who owes me money" looks like.
   Future<List<Map<String, dynamic>>> getCustomerLedger() async {
     final db = await database;
     return await db.rawQuery('''
-      SELECT
-        customer_name,
-        COUNT(*)                    AS sale_count,
-        SUM(total_amount)           AS total_sales,
-        SUM(amount_paid)            AS total_paid,
-        SUM(total_amount - amount_paid) AS total_balance,
-        MAX(date)                   AS last_sale_date
+      SELECT customer_name,
+             COUNT(*)                              AS transaction_count,
+             COALESCE(SUM(total_amount), 0)         AS total_sales,
+             COALESCE(SUM(amount_paid), 0)          AS total_paid,
+             COALESCE(SUM(total_amount - amount_paid), 0) AS balance_owed,
+             MAX(date)                              AS last_sale_date
       FROM sales
       WHERE customer_name IS NOT NULL AND TRIM(customer_name) != ''
       GROUP BY customer_name
-      ORDER BY total_balance DESC, last_sale_date DESC
+      ORDER BY balance_owed DESC, total_sales DESC
     ''');
   }
 
-  // Every sale belonging to one specific customer, newest first —
-  // used for the drill-down view on the Customer Ledger screen.
+  // Every sale for one customer, newest first — opened when the
+  // owner taps into a customer's row on the ledger.
   Future<List<Map<String, dynamic>>> getSalesForCustomer(String customerName) async {
     final db = await database;
     return await db.query(
       'sales',
       where: 'customer_name = ?',
       whereArgs: [customerName],
-      orderBy: 'created_at DESC',
+      orderBy: 'date DESC',
     );
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // RECURRING EXPENSE TEMPLATES (rent, salaries, utilities…)
+  // ══════════════════════════════════════════════════════════
+
+  Future<int> insertRecurringExpenseTemplate(Map<String, dynamic> template) async {
+    final db = await database;
+    return await db.insert('recurring_expense_templates', template);
+  }
+
+  Future<List<Map<String, dynamic>>> getRecurringExpenseTemplates() async {
+    final db = await database;
+    return await db.query('recurring_expense_templates', orderBy: 'description ASC');
+  }
+
+  Future<int> deleteRecurringExpenseTemplate(int id) async {
+    final db = await database;
+    return await db.delete('recurring_expense_templates', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // INVENTORY / STOCK
+  // ══════════════════════════════════════════════════════════
+
+  Future<int> insertInventoryItem(Map<String, dynamic> item) async {
+    final db = await database;
+    return await db.insert('inventory_items', item);
+  }
+
+  Future<List<Map<String, dynamic>>> getInventoryItems() async {
+    final db = await database;
+    return await db.query('inventory_items', orderBy: 'name ASC');
+  }
+
+  Future<int> updateInventoryItem(int id, Map<String, dynamic> item) async {
+    final db = await database;
+    return await db.update('inventory_items', item, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> deleteInventoryItem(int id) async {
+    final db = await database;
+    return await db.delete('inventory_items', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // Adjusts stock_quantity by +/- delta (delta is negative for a
+  // sale, positive for a restock). Clamped at 0 so stock never goes
+  // negative in the display, even if oversold.
+  Future<void> adjustInventoryStock(int itemId, int delta) async {
+    final db = await database;
+    final rows = await db.query('inventory_items', where: 'id = ?', whereArgs: [itemId], limit: 1);
+    if (rows.isEmpty) return;
+    final current = rows.first['stock_quantity'] as int;
+    final updated = (current + delta) < 0 ? 0 : current + delta;
+    await db.update('inventory_items', {'stock_quantity': updated}, where: 'id = ?', whereArgs: [itemId]);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // GLOBAL SEARCH (Income + Expenses + Sales)
+  // ══════════════════════════════════════════════════════════
+
+  // One combined, newest-first result set across all three record
+  // types, matched against description/category/customer name.
+  Future<List<Map<String, dynamic>>> globalSearch(String query) async {
+    final db = await database;
+    final like = '%$query%';
+    return await db.rawQuery('''
+      SELECT id, date, description, category, amount, 'Income' AS record_type, NULL AS extra
+      FROM income
+      WHERE description LIKE ? OR category LIKE ?
+      UNION ALL
+      SELECT id, date, description, category, amount, 'Expense' AS record_type, payment_status AS extra
+      FROM expenses
+      WHERE description LIKE ? OR category LIKE ?
+      UNION ALL
+      SELECT id, date, item_description AS description, customer_name AS category, total_amount AS amount,
+             'Sale' AS record_type, payment_status AS extra
+      FROM sales
+      WHERE item_description LIKE ? OR customer_name LIKE ?
+      ORDER BY date DESC
+      LIMIT 100
+    ''', [like, like, like, like, like, like]);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -799,31 +878,23 @@ class DatabaseHelper {
   Future<Map<String, dynamic>> exportAllData() async {
     final db = await database;
     // Fetch every row from every table
-    final profile          = await db.query('business_profile');
-    final income            = await db.query('income');
-    final expenses           = await db.query('expenses');
-    final expensePayments     = await db.query('expense_payments');
-    final sales                = await db.query('sales');
-    final salePayments          = await db.query('sale_payments');
-    final businessDocuments      = await db.query('business_documents');
-    final inventoryItems           = await db.query('inventory_items');
-    final expenseTemplates          = await db.query('expense_templates');
-    final settings                    = await db.query('settings');
+    final profile      = await db.query('business_profile');
+    final income       = await db.query('income');
+    final expenses     = await db.query('expenses');
+    final sales        = await db.query('sales');
+    final salePayments = await db.query('sale_payments');
+    final settings     = await db.query('settings');
 
     // Return as a nested map — easy to convert to JSON
     return {
       'business_profile': profile,
       'income': income,
       'expenses': expenses,
-      'expense_payments': expensePayments,
       'sales': sales,
       'sale_payments': salePayments,
-      'business_documents': businessDocuments,
-      'inventory_items': inventoryItems,
-      'expense_templates': expenseTemplates,
       'settings': settings,
       'exported_at': DateTime.now().toIso8601String(),
-      'app_version': '1.2.0',
+      'app_version': '1.1.0',
     };
   }
 
@@ -836,38 +907,26 @@ class DatabaseHelper {
     await db.transaction((txn) async {
       // Wipe all existing data
       await txn.delete('sale_payments');
-      await txn.delete('expense_payments');
       await txn.delete('sales');
       await txn.delete('income');
       await txn.delete('expenses');
-      await txn.delete('business_documents');
-      await txn.delete('inventory_items');
-      await txn.delete('expense_templates');
       await txn.delete('business_profile');
       await txn.delete('settings');
 
       // Re-insert from backup
-      final List profile           = data['business_profile'] ?? [];
-      final List income             = data['income'] ?? [];
-      final List expenses            = data['expenses'] ?? [];
-      final List expensePayments      = data['expense_payments'] ?? [];
-      final List sales                  = data['sales'] ?? [];
-      final List salePayments             = data['sale_payments'] ?? [];
-      final List businessDocuments         = data['business_documents'] ?? [];
-      final List inventoryItems               = data['inventory_items'] ?? [];
-      final List expenseTemplates              = data['expense_templates'] ?? [];
-      final List settings                        = data['settings'] ?? [];
+      final List profile      = data['business_profile'] ?? [];
+      final List income       = data['income'] ?? [];
+      final List expenses     = data['expenses'] ?? [];
+      final List sales        = data['sales'] ?? [];
+      final List salePayments = data['sale_payments'] ?? [];
+      final List settings     = data['settings'] ?? [];
 
-      for (var row in profile)            await txn.insert('business_profile',  Map<String, dynamic>.from(row));
-      for (var row in income)             await txn.insert('income',            Map<String, dynamic>.from(row));
-      for (var row in expenses)           await txn.insert('expenses',          Map<String, dynamic>.from(row));
-      for (var row in expensePayments)    await txn.insert('expense_payments',  Map<String, dynamic>.from(row));
-      for (var row in sales)              await txn.insert('sales',             Map<String, dynamic>.from(row));
-      for (var row in salePayments)       await txn.insert('sale_payments',     Map<String, dynamic>.from(row));
-      for (var row in businessDocuments)  await txn.insert('business_documents',Map<String, dynamic>.from(row));
-      for (var row in inventoryItems)     await txn.insert('inventory_items',   Map<String, dynamic>.from(row));
-      for (var row in expenseTemplates)   await txn.insert('expense_templates', Map<String, dynamic>.from(row));
-      for (var row in settings)           await txn.insert('settings',          Map<String, dynamic>.from(row));
+      for (var row in profile)      await txn.insert('business_profile', Map<String, dynamic>.from(row));
+      for (var row in income)       await txn.insert('income',           Map<String, dynamic>.from(row));
+      for (var row in expenses)     await txn.insert('expenses',         Map<String, dynamic>.from(row));
+      for (var row in sales)        await txn.insert('sales',            Map<String, dynamic>.from(row));
+      for (var row in salePayments) await txn.insert('sale_payments',    Map<String, dynamic>.from(row));
+      for (var row in settings)     await txn.insert('settings',         Map<String, dynamic>.from(row));
     });
   }
 
@@ -879,14 +938,14 @@ class DatabaseHelper {
     final db = await database;
     await db.transaction((txn) async {
       await txn.delete('sale_payments');
-      await txn.delete('expense_payments');
       await txn.delete('sales');
+      await txn.delete('expense_payments');
       await txn.delete('income');
       await txn.delete('expenses');
       await txn.delete('business_profile');
       await txn.delete('business_documents');
+      await txn.delete('recurring_expense_templates');
       await txn.delete('inventory_items');
-      await txn.delete('expense_templates');
       await txn.delete('settings');
     });
   }
@@ -950,76 +1009,6 @@ class DatabaseHelper {
       'expenses':         await count('expenses'),
       'sales':            await count('sales'),
     };
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // INVENTORY METHODS
-  // ══════════════════════════════════════════════════════════
-  // Basic stock tracking. Selling an item linked to an inventory
-  // row automatically reduces quantity_on_hand (see decrementStock).
-
-  Future<int> insertInventoryItem(Map<String, dynamic> item) async {
-    final db = await database;
-    return await db.insert('inventory_items', item);
-  }
-
-  Future<List<Map<String, dynamic>>> getAllInventoryItems() async {
-    final db = await database;
-    return await db.query('inventory_items', orderBy: 'item_name ASC');
-  }
-
-  Future<int> updateInventoryItem(int id, Map<String, dynamic> item) async {
-    final db = await database;
-    return await db.update('inventory_items', item, where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<int> deleteInventoryItem(int id) async {
-    final db = await database;
-    return await db.delete('inventory_items', where: 'id = ?', whereArgs: [id]);
-  }
-
-  // Reduce stock on hand when a sale is linked to this item.
-  // Uses a raw SQL decrement so it's always based on the CURRENT
-  // database value, not a possibly-stale value held in memory.
-  Future<void> decrementInventoryStock(int itemId, int quantitySold) async {
-    final db = await database;
-    await db.rawUpdate('''
-      UPDATE inventory_items
-      SET quantity_on_hand = quantity_on_hand - ?, updated_at = ?
-      WHERE id = ?
-    ''', [quantitySold, DateTime.now().toIso8601String(), itemId]);
-  }
-
-  // Restore stock — used when a sale linked to an inventory item
-  // is deleted, so its quantity isn't permanently lost from stock.
-  Future<void> incrementInventoryStock(int itemId, int quantityRestored) async {
-    final db = await database;
-    await db.rawUpdate('''
-      UPDATE inventory_items
-      SET quantity_on_hand = quantity_on_hand + ?, updated_at = ?
-      WHERE id = ?
-    ''', [quantityRestored, DateTime.now().toIso8601String(), itemId]);
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // RECURRING EXPENSE TEMPLATES
-  // ══════════════════════════════════════════════════════════
-  // Saved once (e.g. "Rent — GHS 500 — Rent/Lease"), then re-logged
-  // as a brand-new expense entry with one tap each month.
-
-  Future<int> insertExpenseTemplate(Map<String, dynamic> template) async {
-    final db = await database;
-    return await db.insert('expense_templates', template);
-  }
-
-  Future<List<Map<String, dynamic>>> getAllExpenseTemplates() async {
-    final db = await database;
-    return await db.query('expense_templates', orderBy: 'description ASC');
-  }
-
-  Future<int> deleteExpenseTemplate(int id) async {
-    final db = await database;
-    return await db.delete('expense_templates', where: 'id = ?', whereArgs: [id]);
   }
 
   // ══════════════════════════════════════════════════════════

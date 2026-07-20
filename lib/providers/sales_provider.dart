@@ -60,12 +60,6 @@ class SalesProvider extends ChangeNotifier {
       saleMap['amount_paid'] = resolvedAmountPaid;
       await DatabaseHelper.instance.insertSale(saleMap);
 
-      // If this sale was made from tracked stock, reduce the
-      // inventory item's quantity on hand accordingly.
-      if (sale.inventoryItemId != null) {
-        await DatabaseHelper.instance.decrementInventoryStock(sale.inventoryItemId!, sale.quantity);
-      }
-
       await loadAll();
       return true;
     } catch (e) {
@@ -76,17 +70,6 @@ class SalesProvider extends ChangeNotifier {
 
   Future<bool> deleteSale(int id) async {
     try {
-      // If this sale was linked to a tracked inventory item,
-      // restore the stock it had reduced — deleting a sale record
-      // shouldn't permanently lose that stock from the count.
-      final sale = _sales.firstWhere((s) => s.id == id, orElse: () => Sale(
-        date: '', itemDescription: '', quantity: 0, unitPrice: 0, totalAmount: 0,
-        paymentMethod: '', paymentStatus: 'Paid', createdAt: '',
-      ));
-      if (sale.inventoryItemId != null) {
-        await DatabaseHelper.instance.incrementInventoryStock(sale.inventoryItemId!, sale.quantity);
-      }
-
       await DatabaseHelper.instance.deleteSale(id);
       _sales.removeWhere((s) => s.id == id);
       notifyListeners();

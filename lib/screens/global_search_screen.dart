@@ -1,19 +1,17 @@
 // ============================================================
-// screens/global_search_screen.dart  –  Search All Records
+// screens/global_search_screen.dart  –  Search Everything
 // ============================================================
-// Searches across Income, Expense, and Sales records at once by
-// description/category/customer/item name — much faster than
-// hunting through three separate tabs and their date filters.
+// One search box across Income, Expenses, and Sales — matched on
+// description/category (and customer name, for Sales). Useful for
+// "when did I last buy from that supplier" or "find that big sale".
 // ============================================================
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
-import '../models/models.dart';
 import '../utils/utils.dart';
-import 'income_screen.dart';
-import 'expense_screen.dart';
-import 'sales_screen.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
   const GlobalSearchScreen({super.key});
@@ -22,182 +20,150 @@ class GlobalSearchScreen extends StatefulWidget {
   State<GlobalSearchScreen> createState() => _GlobalSearchScreenState();
 }
 
-// A single unified row used to render mixed result types together
-class _SearchResult {
-  final String type; // 'Income' | 'Expense' | 'Sale'
-  final String title;
-  final String subtitle;
-  final double amount;
-  final Color color;
-  final VoidCallback onTap;
-
-  _SearchResult({
-    required this.type,
-    required this.title,
-    required this.subtitle,
-    required this.amount,
-    required this.color,
-    required this.onTap,
-  });
-}
-
 class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
-  final _searchCtrl = TextEditingController();
-  bool _isLoading = true;
-  List<Income> _allIncome = [];
-  List<Expense> _allExpenses = [];
-  List<Sale> _allSales = [];
-  String _query = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAll();
-    _searchCtrl.addListener(() {
-      setState(() => _query = _searchCtrl.text.trim().toLowerCase());
-    });
-  }
+  final _controller = TextEditingController();
+  List<Map<String, dynamic>> _results = [];
+  bool _isSearching = false;
+  bool _hasSearched = false;
+  Timer? _debounce;
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    _controller.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadAll() async {
-    setState(() => _isLoading = true);
-    final incomeRows = await DatabaseHelper.instance.getAllIncome();
-    final expenseRows = await DatabaseHelper.instance.getAllExpenses();
-    final salesRows = await DatabaseHelper.instance.getAllSales();
+  void _onChanged(String query) {
+    _debounce?.cancel();
+    if (query.trim().length < 2) {
+      setState(() {
+        _results = [];
+        _hasSearched = false;
+      });
+      return;
+    }
+    // Wait for a short pause in typing before hitting the database
+    _debounce = Timer(const Duration(milliseconds: 350), () => _search(query.trim()));
+  }
+
+  Future<void> _search(String query) async {
+    setState(() => _isSearching = true);
+    final rows = await DatabaseHelper.instance.globalSearch(query);
     if (!mounted) return;
     setState(() {
-      _allIncome = incomeRows.map((r) => Income.fromMap(r)).toList();
-      _allExpenses = expenseRows.map((r) => Expense.fromMap(r)).toList();
-      _allSales = salesRows.map((r) => Sale.fromMap(r)).toList();
-      _isLoading = false;
+      _results = rows;
+      _isSearching = false;
+      _hasSearched = true;
     });
   }
 
-  List<_SearchResult> get _results {
-    if (_query.isEmpty) return [];
-
-    final results = <_SearchResult>[];
-
-    for (final income in _allIncome) {
-      if (income.description.toLowerCase().contains(_query) ||
-          income.category.toLowerCase().contains(_query)) {
-        results.add(_SearchResult(
-          type: 'Income',
-          title: income.description,
-          subtitle: '${income.category} • ${AppFormat.displayDate(income.date)}',
-          amount: income.amount,
-          color: AppColors.income,
-          onTap: () => showIncomeDetailSheet(context, income),
-        ));
-      }
+  Color _typeColor(String type) {
+    switch (type) {
+      case 'Income':
+        return AppColors.income;
+      case 'Expense':
+        return AppColors.expense;
+      default:
+        return AppColors.gold;
     }
+  }
 
-    for (final expense in _allExpenses) {
-      if (expense.description.toLowerCase().contains(_query) ||
-          expense.category.toLowerCase().contains(_query)) {
-        results.add(_SearchResult(
-          type: 'Expense',
-          title: expense.description,
-          subtitle: '${expense.category} • ${AppFormat.displayDate(expense.date)}',
-          amount: expense.amount,
-          color: AppColors.expense,
-          onTap: () => showExpenseDetailSheet(context, expense),
-        ));
-      }
+  IconData _typeIcon(String type) {
+    switch (type) {
+      case 'Income':
+        return Icons.arrow_downward;
+      case 'Expense':
+        return Icons.arrow_upward;
+      default:
+        return Icons.point_of_sale_outlined;
     }
-
-    for (final sale in _allSales) {
-      final customer = sale.customerName ?? '';
-      if (sale.itemDescription.toLowerCase().contains(_query) ||
-          customer.toLowerCase().contains(_query)) {
-        results.add(_SearchResult(
-          type: 'Sale',
-          title: sale.itemDescription,
-          subtitle: '${customer.isNotEmpty ? "$customer • " : ""}${AppFormat.displayDate(sale.date)}',
-          amount: sale.totalAmount,
-          color: AppColors.gold,
-          onTap: () => showSaleDetailSheet(context, sale),
-        ));
-      }
-    }
-
-    return results;
   }
 
   @override
   Widget build(BuildContext context) {
-    final results = _results;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: TextField(
-          controller: _searchCtrl,
+          controller: _controller,
           autofocus: true,
+          onChanged: _onChanged,
           style: const TextStyle(color: Colors.white, fontSize: 16),
+          cursorColor: Colors.white,
           decoration: const InputDecoration(
-            hintText: 'Search income, expenses, sales...',
+            hintText: 'Search income, expenses, sales…',
             hintStyle: TextStyle(color: Colors.white70),
             border: InputBorder.none,
           ),
         ),
-        actions: [
-          if (_searchCtrl.text.isNotEmpty)
-            IconButton(icon: const Icon(Icons.clear), onPressed: () => _searchCtrl.clear()),
-        ],
       ),
-      body: _isLoading
+      body: _isSearching
           ? const Center(child: CircularProgressIndicator())
-          : _query.isEmpty
+          : !_hasSearched
               ? const Center(
                   child: Padding(
-                    padding: EdgeInsets.all(24),
+                    padding: EdgeInsets.symmetric(horizontal: 40),
                     child: Text(
-                      'Type to search across all your Income, Expense, and Sales records at once.',
+                      'Search across every income, expense, and sale record by '
+                      'description, category, or customer name.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppColors.textMuted),
                     ),
                   ),
                 )
-              : results.isEmpty
+              : _results.isEmpty
                   ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text('No matching records found.', style: TextStyle(color: AppColors.textMuted)),
-                      ),
+                      child: Text('No matching records found.', style: TextStyle(color: AppColors.textMuted)),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: results.length,
-                      itemBuilder: (context, index) {
-                        final r = results[index];
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _results.length,
+                      itemBuilder: (_, index) {
+                        final row = _results[index];
+                        final type = row['record_type'] as String;
+                        final amount = (row['amount'] as num).toDouble();
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(color: AppColors.border),
                           ),
-                          child: ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: r.color.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(6),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 34, height: 34,
+                                decoration: BoxDecoration(
+                                  color: _typeColor(type).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(_typeIcon(type), size: 16, color: _typeColor(type)),
                               ),
-                              child: Text(r.type,
-                                  style: TextStyle(fontSize: 10, color: r.color, fontWeight: FontWeight.w700)),
-                            ),
-                            title: Text(r.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            subtitle: Text(r.subtitle, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                            trailing: Text(AppFormat.currency(r.amount),
-                                style: const TextStyle(fontWeight: FontWeight.bold)),
-                            onTap: r.onTap,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(row['description'] as String? ?? '',
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '$type • ${AppFormat.displayDate(row['date'] as String)}'
+                                      '${(row['category'] as String?)?.isNotEmpty == true ? " • ${row['category']}" : ""}',
+                                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                AppFormat.currency(amount),
+                                style: TextStyle(fontWeight: FontWeight.bold, color: _typeColor(type)),
+                              ),
+                            ],
                           ),
                         );
                       },

@@ -1,10 +1,9 @@
 // ============================================================
-// screens/customer_ledger_screen.dart  –  Customer Ledger
+// screens/customer_ledger_screen.dart  –  Who Owes What
 // ============================================================
-// Aggregates every sale by customer name so the owner can see,
-// at a glance, who owes what in total — instead of hunting
-// through individual sales one at a time. Tapping a customer
-// drills down into their full sales history.
+// Aggregates every sale by customer name, so the owner can see at
+// a glance who's fully paid up and who still owes a balance —
+// without having to scroll through every individual sale.
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -12,7 +11,6 @@ import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../models/models.dart';
 import '../utils/utils.dart';
-import 'sales_screen.dart';
 
 class CustomerLedgerScreen extends StatefulWidget {
   const CustomerLedgerScreen({super.key});
@@ -22,8 +20,8 @@ class CustomerLedgerScreen extends StatefulWidget {
 }
 
 class _CustomerLedgerScreenState extends State<CustomerLedgerScreen> {
-  bool _isLoading = true;
   List<Map<String, dynamic>> _ledger = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -43,121 +41,111 @@ class _CustomerLedgerScreenState extends State<CustomerLedgerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final totalOwed = _ledger.fold<double>(
-      0, (sum, row) => sum + ((row['total_balance'] as num?)?.toDouble() ?? 0));
+    final totalOwed = _ledger.fold<double>(0, (s, r) => s + (r['balance_owed'] as num).toDouble());
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Customer Ledger')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _ledger.isEmpty
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'No customer names have been recorded on any sales yet. '
-                      'Add a customer name when recording a sale to start tracking balances here.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.textMuted),
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _ledger.isEmpty
+                  ? ListView(
+                      children: const [
+                        SizedBox(height: 120),
+                        Center(
+                          child: Text('No customers on record yet.\nAdd a customer name on a sale to start tracking balances.',
+                              textAlign: TextAlign.center, style: TextStyle(color: AppColors.textMuted)),
+                        ),
+                      ],
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.expenseLight,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Total Owed to You', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                              Text(AppFormat.currency(totalOwed),
+                                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.expense)),
+                              const SizedBox(height: 2),
+                              Text('Across ${_ledger.where((r) => (r['balance_owed'] as num) > 0).length} customer(s)',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ..._ledger.map((row) => _customerTile(row)),
+                      ],
                     ),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      // ── Summary card ─────────────────────────
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryDark,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Total Owed to You',
-                                style: TextStyle(color: Colors.white70, fontSize: 12)),
-                            const SizedBox(height: 4),
-                            Text(
-                              AppFormat.currency(totalOwed),
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 2),
-                            Text('${_ledger.where((r) => ((r['total_balance'] as num?) ?? 0) > 0).length} '
-                                'customer(s) with an outstanding balance',
-                                style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      ..._ledger.map((row) => _CustomerTile(row: row)),
-                    ],
-                  ),
-                ),
+            ),
     );
   }
-}
 
-class _CustomerTile extends StatelessWidget {
-  final Map<String, dynamic> row;
-  const _CustomerTile({required this.row});
-
-  @override
-  Widget build(BuildContext context) {
-    final name = row['customer_name'] as String? ?? 'Unknown';
-    final totalSales = (row['total_sales'] as num?)?.toDouble() ?? 0;
-    final totalPaid = (row['total_paid'] as num?)?.toDouble() ?? 0;
-    final balance = (row['total_balance'] as num?)?.toDouble() ?? 0;
-    final saleCount = row['sale_count'] as int? ?? 0;
+  Widget _customerTile(Map<String, dynamic> row) {
+    final name = row['customer_name'] as String;
+    final balance = (row['balance_owed'] as num).toDouble();
+    final totalSales = (row['total_sales'] as num).toDouble();
+    final txCount = row['transaction_count'] as int;
     final hasBalance = balance > 0.01;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => _CustomerDetailScreen(customerName: name)),
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        leading: CircleAvatar(
-          backgroundColor: hasBalance ? AppColors.expenseLight : AppColors.primaryLight,
-          child: Text(
-            name.isNotEmpty ? name[0].toUpperCase() : '?',
-            style: TextStyle(
-                color: hasBalance ? AppColors.expense : AppColors.primary, fontWeight: FontWeight.bold),
-          ),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
         ),
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-        subtitle: Text(
-          '$saleCount sale${saleCount == 1 ? '' : 's'} • Total: ${AppFormat.currency(totalSales)} '
-          '• Paid: ${AppFormat.currency(totalPaid)}',
-          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Row(
           children: [
-            Text(
-              hasBalance ? AppFormat.currency(balance) : 'Settled',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: hasBalance ? AppColors.expense : AppColors.primary,
-                fontSize: hasBalance ? 14 : 12,
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: (hasBalance ? AppColors.expense : AppColors.income).withOpacity(0.12),
+              child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                  style: TextStyle(
+                      color: hasBalance ? AppColors.expense : AppColors.income, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  const SizedBox(height: 2),
+                  Text('$txCount sale(s) • ${AppFormat.currency(totalSales)} total',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                ],
               ),
             ),
-            if (hasBalance)
-              const Text('owed', style: TextStyle(fontSize: 10, color: AppColors.textLight)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  hasBalance ? AppFormat.currency(balance) : 'Paid up',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: hasBalance ? 14 : 12,
+                      color: hasBalance ? AppColors.expense : AppColors.income),
+                ),
+                if (hasBalance)
+                  const Text('owed', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+              ],
+            ),
           ],
-        ),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => _CustomerSalesScreen(customerName: name)),
         ),
       ),
     );
@@ -165,19 +153,19 @@ class _CustomerTile extends StatelessWidget {
 }
 
 // ============================================================
-// _CustomerSalesScreen  –  Drill-down: all sales for one customer
+// _CustomerDetailScreen  –  Every sale for one customer
 // ============================================================
-class _CustomerSalesScreen extends StatefulWidget {
+class _CustomerDetailScreen extends StatefulWidget {
   final String customerName;
-  const _CustomerSalesScreen({required this.customerName});
+  const _CustomerDetailScreen({required this.customerName});
 
   @override
-  State<_CustomerSalesScreen> createState() => _CustomerSalesScreenState();
+  State<_CustomerDetailScreen> createState() => _CustomerDetailScreenState();
 }
 
-class _CustomerSalesScreenState extends State<_CustomerSalesScreen> {
-  bool _isLoading = true;
+class _CustomerDetailScreenState extends State<_CustomerDetailScreen> {
   List<Sale> _sales = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -186,7 +174,6 @@ class _CustomerSalesScreenState extends State<_CustomerSalesScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _isLoading = true);
     final rows = await DatabaseHelper.instance.getSalesForCustomer(widget.customerName);
     if (!mounted) return;
     setState(() {
@@ -197,50 +184,67 @@ class _CustomerSalesScreenState extends State<_CustomerSalesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final balance = _sales.fold<double>(0, (s, sale) => s + sale.balance);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text(widget.customerName)),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _sales.length,
-                itemBuilder: (context, index) {
-                  final sale = _sales[index];
-                  final statusColor = sale.paymentStatus == 'Paid'
-                      ? AppColors.income
-                      : (sale.paymentStatus == 'Pending' ? AppColors.expense : AppColors.warning);
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: ListTile(
-                      title: Text(sale.itemDescription,
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      subtitle: Text(
-                        '${AppFormat.displayDate(sale.date)} • ${sale.paymentStatus}'
-                        '${sale.balance > 0 ? " • Balance: ${AppFormat.currency(sale.balance)}" : ""}',
-                        style: TextStyle(fontSize: 11, color: statusColor),
-                      ),
-                      trailing: Text(
-                        AppFormat.currency(sale.totalAmount),
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.gold),
-                      ),
-                      onTap: () {
-                        // Reuse the exact same detail sheet from the Sales tab —
-                        // opening it here lets the owner record a payment straight
-                        // from the ledger, then refresh this list on close.
-                        showSaleDetailSheet(context, sale);
-                      },
-                    ),
-                  );
-                },
-              ),
+          : Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  color: balance > 0.01 ? AppColors.expenseLight : AppColors.primaryLight,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Balance Owed', style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text(AppFormat.currency(balance),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                              color: balance > 0.01 ? AppColors.expense : AppColors.income)),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _sales.length,
+                    itemBuilder: (_, index) {
+                      final sale = _sales[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(sale.itemDescription, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                  const SizedBox(height: 2),
+                                  Text('${AppFormat.displayDate(sale.date)} • ${sale.paymentStatus}',
+                                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                ],
+                              ),
+                            ),
+                            Text(AppFormat.currency(sale.totalAmount),
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.gold)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
     );
   }

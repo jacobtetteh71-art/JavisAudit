@@ -15,9 +15,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
-import '../models/models.dart';
 import '../utils/utils.dart';
-import '../utils/csv_exporter.dart';
 import 'verify_identity_sheet.dart';
 
 class BackupScreen extends StatefulWidget {
@@ -31,6 +29,7 @@ class _BackupScreenState extends State<BackupScreen> {
   Map<String, int> _counts = {};
   bool _isLoading = true;
   bool _isProcessing = false;
+  String? _exportingType; // which CSV export is currently running, for a small spinner
 
   @override
   void initState() {
@@ -93,6 +92,71 @@ class _BackupScreenState extends State<BackupScreen> {
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
+  }
+
+  // ── _exportCsv: Income / Expenses / Sales as a spreadsheet ──
+  // Writes a plain CSV file (opens directly in Excel, Google
+  // Sheets, or Numbers) alongside the existing PDF report options.
+  Future<void> _exportCsv(String type) async {
+    final verified = await verifyIdentity(context, reason: 'export $type data');
+    if (!verified || !mounted) return;
+
+    setState(() => _exportingType = type);
+    try {
+      List<Map<String, dynamic>> rows;
+      List<String> headers;
+
+      switch (type) {
+        case 'Income':
+          rows = await DatabaseHelper.instance.getAllIncome();
+          headers = ['date', 'amount', 'description', 'category', 'payment_method', 'notes'];
+          break;
+        case 'Expenses':
+          rows = await DatabaseHelper.instance.getAllExpenses();
+          headers = ['date', 'amount', 'description', 'category', 'payment_method', 'payment_status', 'amount_paid', 'receipt_no'];
+          break;
+        default: // Sales
+          rows = await DatabaseHelper.instance.getAllSales();
+          headers = ['date', 'customer_name', 'item_description', 'quantity', 'unit_price', 'total_amount',
+                     'cost_price', 'payment_method', 'payment_status', 'amount_paid'];
+      }
+
+      final csv = _buildCsv(headers, rows);
+      final dir = await getTemporaryDirectory();
+      final dateStr = AppFormat.today().replaceAll('-', '');
+      final file = File('${dir.path}/JavisAudit_${type}_$dateStr.csv');
+      await file.writeAsString(csv);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'JavisAudit $type export — ${AppFormat.displayDate(AppFormat.today())}',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV export failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingType = null);
+    }
+  }
+
+  // Builds a CSV string from a list of column names and DB rows,
+  // quoting every field so commas/quotes/newlines inside values
+  // (e.g. a description containing a comma) can't corrupt the file.
+  String _buildCsv(List<String> headers, List<Map<String, dynamic>> rows) {
+    String escape(dynamic value) {
+      final str = (value ?? '').toString().replaceAll('"', '""');
+      return '"$str"';
+    }
+
+    final buffer = StringBuffer();
+    buffer.writeln(headers.map(escape).join(','));
+    for (final row in rows) {
+      buffer.writeln(headers.map((h) => escape(row[h])).join(','));
+    }
+    return buffer.toString();
   }
 
   // ── _restoreBackup ────────────────────────────────────────
@@ -212,43 +276,6 @@ class _BackupScreenState extends State<BackupScreen> {
     return secondConfirm == true;
   }
 
-  // ── _exportCsv: CSV export for one record type ─────────────
-  Future<void> _exportCsv(String type) async {
-    final verified = await verifyIdentity(context, reason: 'export data to CSV');
-    if (!verified || !mounted) return;
-
-    setState(() => _isProcessing = true);
-    try {
-      switch (type) {
-        case 'income':
-          final rows = await DatabaseHelper.instance.getAllIncome();
-          await exportIncomeToCsv(rows.map((r) => Income.fromMap(r)).toList());
-          break;
-        case 'expenses':
-          final rows = await DatabaseHelper.instance.getAllExpenses();
-          await exportExpensesToCsv(rows.map((r) => Expense.fromMap(r)).toList());
-          break;
-        case 'sales':
-          final rows = await DatabaseHelper.instance.getAllSales();
-          await exportSalesToCsv(rows.map((r) => Sale.fromMap(r)).toList());
-          break;
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('CSV exported!'), backgroundColor: AppColors.primary),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('CSV export failed: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -287,7 +314,7 @@ class _BackupScreenState extends State<BackupScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // ── CSV export card ────────────────────────
+                // ── CSV Export card ────────────────────────
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -299,41 +326,26 @@ class _BackupScreenState extends State<BackupScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        children: const [
-                          Icon(Icons.table_chart_outlined, color: AppColors.info),
+                        children: [
+                          Icon(Icons.table_chart_outlined, color: AppColors.gold),
                           SizedBox(width: 8),
-                          Text('Export to CSV / Excel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          Text('Export as CSV', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                         ],
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Share a spreadsheet-ready file for your accountant — opens in '
-                        'Excel, Google Sheets, or any spreadsheet app.',
+                        'Opens directly in Excel, Google Sheets, or Numbers — handy for '
+                        'your own analysis alongside the PDF reports.',
                         style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
                       ),
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isProcessing ? null : () => _exportCsv('income'),
-                              child: const Text('Income', style: TextStyle(fontSize: 12)),
-                            ),
-                          ),
+                          Expanded(child: _csvButton('Income')),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isProcessing ? null : () => _exportCsv('expenses'),
-                              child: const Text('Expenses', style: TextStyle(fontSize: 12)),
-                            ),
-                          ),
+                          Expanded(child: _csvButton('Expenses')),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isProcessing ? null : () => _exportCsv('sales'),
-                              child: const Text('Sales', style: TextStyle(fontSize: 12)),
-                            ),
-                          ),
+                          Expanded(child: _csvButton('Sales')),
                         ],
                       ),
                     ],
@@ -410,6 +422,17 @@ class _BackupScreenState extends State<BackupScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _csvButton(String type) {
+    final isBusy = _exportingType == type;
+    return OutlinedButton(
+      onPressed: (_isProcessing || _exportingType != null) ? null : () => _exportCsv(type),
+      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 10)),
+      child: isBusy
+          ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+          : Text(type, style: const TextStyle(fontSize: 12)),
     );
   }
 

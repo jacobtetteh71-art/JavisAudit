@@ -101,8 +101,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: Text(profile?.businessName ?? 'JavisAudit'),
         actions: [
           IconButton(
-            tooltip: 'Search all records',
             icon: const Icon(Icons.search),
+            tooltip: 'Search',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const GlobalSearchScreen()),
             ),

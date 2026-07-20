@@ -11,24 +11,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../database/database_helper.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
 import '../utils/receipt_generator.dart';
 import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
-
-// Public entry point so other screens (Customer Ledger, Global
-// Search) can open the same sale detail view used here, without
-// duplicating the whole _SaleDetailSheet widget.
-void showSaleDetailSheet(BuildContext context, Sale sale) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => _SaleDetailSheet(sale: sale),
-  );
-}
 
 class SalesScreen extends StatefulWidget {
   const SalesScreen({super.key});
@@ -255,7 +244,14 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   String _selectedStatus = 'Paid'; // Default to Paid
   bool _isSaving = false;
   final _chequeDetails = ChequeDetailsController();
-  InventoryItem? _selectedInventoryItem; // Optional — links this sale to tracked stock
+  List<InventoryItem> _inventoryItems = [];
+  InventoryItem? _selectedInventoryItem;
+
+  Future<void> _loadInventoryItems() async {
+    final rows = await DatabaseHelper.instance.getInventoryItems();
+    if (!mounted) return;
+    setState(() => _inventoryItems = rows.map((r) => InventoryItem.fromMap(r)).toList());
+  }
 
   // The live-calculated total — recomputed on every keystroke
   double get _computedTotal {
@@ -278,10 +274,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     _quantityCtrl.addListener(() => setState(() {}));
     _unitPriceCtrl.addListener(() => setState(() {}));
     _costPriceCtrl.addListener(() => setState(() {}));
-    // Load inventory items so the "Select from Inventory" dropdown has data
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<InventoryProvider>().loadAll();
-    });
+    _loadInventoryItems();
   }
 
   @override
@@ -329,17 +322,6 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
       startingAmountPaid = entered;
     }
 
-    // If selling from tracked stock, make sure there's enough on hand
-    if (_selectedInventoryItem != null) {
-      final qty = int.tryParse(_quantityCtrl.text.trim()) ?? 0;
-      if (qty > _selectedInventoryItem!.quantityOnHand) {
-        _showError(
-          'Only ${_selectedInventoryItem!.quantityOnHand} "${_selectedInventoryItem!.itemName}" left in stock.',
-        );
-        return;
-      }
-    }
-
     setState(() => _isSaving = true);
 
     final sale = Sale(
@@ -369,6 +351,15 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     // Refresh VAT tracker since a Paid sale adds to annual turnover
     if (success && mounted) {
       await context.read<VatProvider>().loadTurnover();
+    }
+
+    // If this sale was linked to an inventory item, reduce stock by
+    // the quantity sold
+    if (success && _selectedInventoryItem != null) {
+      await DatabaseHelper.instance.adjustInventoryStock(
+        _selectedInventoryItem!.id!,
+        -int.parse(_quantityCtrl.text.trim()),
+      );
     }
 
     setState(() => _isSaving = false);
@@ -438,45 +429,33 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                 ),
                 const SizedBox(height: 12),
 
-                const SizedBox(height: 12),
-
-                // ── Optional: select from tracked inventory ─────
-                // Picking an item auto-fills description, unit
-                // price, and cost price, and links this sale so
-                // completing it reduces stock on hand.
-                Consumer<InventoryProvider>(
-                  builder: (context, inventoryProvider, _) {
-                    if (inventoryProvider.items.isEmpty) return const SizedBox.shrink();
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DropdownButtonFormField<InventoryItem?>(
-                        value: _selectedInventoryItem,
-                        decoration: const InputDecoration(
-                          labelText: 'Select from Inventory (optional)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.inventory_2_outlined),
-                        ),
-                        items: [
-                          const DropdownMenuItem<InventoryItem?>(value: null, child: Text('None — freeform entry')),
-                          ...inventoryProvider.items.map((item) => DropdownMenuItem<InventoryItem?>(
-                                value: item,
-                                child: Text('${item.itemName} (${item.quantityOnHand} in stock)'),
-                              )),
-                        ],
-                        onChanged: (item) {
-                          setState(() {
-                            _selectedInventoryItem = item;
-                            if (item != null) {
-                              _itemCtrl.text = item.itemName;
-                              _unitPriceCtrl.text = item.sellingPrice.toString();
-                              _costPriceCtrl.text = item.costPrice.toString();
-                            }
-                          });
-                        },
-                      ),
-                    );
-                  },
-                ),
+                if (_inventoryItems.isNotEmpty) ...[
+                  DropdownButtonFormField<InventoryItem>(
+                    value: _selectedInventoryItem,
+                    decoration: const InputDecoration(
+                      labelText: 'Link to Inventory Item (optional)', border: OutlineInputBorder(),
+                      helperText: 'Auto-fills the item, price, and cost — and reduces stock on save.',
+                      helperMaxLines: 2,
+                    ),
+                    items: _inventoryItems
+                        .map((i) => DropdownMenuItem(
+                              value: i,
+                              child: Text('${i.name} (${i.stockQuantity} in stock)', overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: (item) {
+                      setState(() {
+                        _selectedInventoryItem = item;
+                        if (item != null) {
+                          _itemCtrl.text = item.name;
+                          if (item.sellingPrice > 0) _unitPriceCtrl.text = item.sellingPrice.toStringAsFixed(2);
+                          if (item.costPrice > 0) _costPriceCtrl.text = item.costPrice.toStringAsFixed(2);
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 TextFormField(
                   controller: _itemCtrl,
@@ -687,7 +666,6 @@ class _SaleDetailSheet extends StatefulWidget {
 class _SaleDetailSheetState extends State<_SaleDetailSheet> {
   List<SalePayment> _payments = [];
   bool _isLoadingPayments = true;
-  bool _isSharingReceipt = false;
 
   @override
   void initState() {
@@ -702,23 +680,6 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
       _payments = payments;
       _isLoadingPayments = false;
     });
-  }
-
-  // ── _shareReceipt: generate & share a one-page PDF receipt ──
-  Future<void> _shareReceipt(Sale sale) async {
-    setState(() => _isSharingReceipt = true);
-    try {
-      final profile = context.read<ProfileProvider>().profile;
-      await shareSaleReceipt(sale: sale, payments: _payments, profile: profile);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not generate receipt: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSharingReceipt = false);
-    }
   }
 
   Color _statusColor(String status) {
@@ -945,30 +906,41 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
                     ],
                   ),
                 ),
-              const SizedBox(height: 20),
-
-              // ── Share Receipt — always available, any status ────
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.gold,
-                    side: const BorderSide(color: AppColors.gold),
-                  ),
                   onPressed: _isSharingReceipt ? null : () => _shareReceipt(sale),
                   icon: _isSharingReceipt
-                      ? const SizedBox(
-                          height: 16, width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.receipt_long_outlined),
-                  label: Text(_isSharingReceipt ? 'Preparing receipt...' : 'Share Receipt'),
+                      ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.receipt_long_outlined, size: 18),
+                  label: Text(_isSharingReceipt ? 'Preparing…' : 'Share Receipt'),
                 ),
               ),
+              const SizedBox(height: 20),
             ],
           ),
         );
       },
     );
+  }
+
+  bool _isSharingReceipt = false;
+
+  Future<void> _shareReceipt(Sale sale) async {
+    setState(() => _isSharingReceipt = true);
+    try {
+      final profile = context.read<ProfileProvider>().profile;
+      await shareSaleReceipt(profile: profile, sale: sale);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not generate receipt: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSharingReceipt = false);
+    }
   }
 
   Widget _detailRow(String label, String value) {

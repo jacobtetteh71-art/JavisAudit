@@ -22,6 +22,7 @@ import 'settings_screen.dart';
 import 'lock_screen.dart';
 import 'customer_ledger_screen.dart';
 import 'inventory_screen.dart';
+import 'global_search_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -88,6 +89,30 @@ class MoreScreen extends StatelessWidget {
 
           _menuTile(
             context,
+            icon: Icons.search,
+            iconColor: AppColors.primary,
+            title: 'Search Everything',
+            subtitle: 'Find any income, expense, or sale record',
+            screen: const GlobalSearchScreen(),
+          ),
+          _menuTile(
+            context,
+            icon: Icons.people_alt_outlined,
+            iconColor: AppColors.expense,
+            title: 'Customer Ledger',
+            subtitle: 'Who owes you money, at a glance',
+            screen: const CustomerLedgerScreen(),
+          ),
+          _menuTile(
+            context,
+            icon: Icons.inventory_2_outlined,
+            iconColor: AppColors.gold,
+            title: 'Inventory',
+            subtitle: 'Stock counts, linked to your sales',
+            screen: const InventoryScreen(),
+          ),
+          _menuTile(
+            context,
             icon: Icons.bar_chart,
             iconColor: AppColors.info,
             title: 'Financial Reports',
@@ -101,22 +126,6 @@ class MoreScreen extends StatelessWidget {
             title: 'Analytics',
             subtitle: 'Compare income, expenses, and profit year over year',
             screen: const AnalyticsScreen(),
-          ),
-          _menuTile(
-            context,
-            icon: Icons.people_alt_outlined,
-            iconColor: AppColors.gold,
-            title: 'Customer Ledger',
-            subtitle: 'See who owes what, across all their sales',
-            screen: const CustomerLedgerScreen(),
-          ),
-          _menuTile(
-            context,
-            icon: Icons.inventory_2_outlined,
-            iconColor: AppColors.info,
-            title: 'Inventory',
-            subtitle: 'Track stock levels and low-stock alerts',
-            screen: const InventoryScreen(),
           ),
           _menuTile(
             context,
@@ -169,7 +178,7 @@ class MoreScreen extends StatelessWidget {
           const SizedBox(height: 20),
           Center(
             child: Text(
-              'JavisAudit v1.2.0',
+              'JavisAudit v1.1.0',
               style: TextStyle(color: AppColors.textLight, fontSize: 11),
             ),
           ),
