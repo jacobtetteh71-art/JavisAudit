@@ -76,17 +76,6 @@ Future<void> main() async {
   // so any future scheduled (not just instant) alerts work too.
   await androidPlugin?.requestExactAlarmsPermission();
 
-  // ── Step 3b: Request runtime notification permission ────
-  // On Android 13+ (API 33+), declaring POST_NOTIFICATIONS in the
-  // manifest is not enough — the app must also ask at runtime, or
-  // every notification (including VAT threshold alerts) silently
-  // fails to show with no error at all. This was the root cause of
-  // VAT warnings not appearing as turnover approached the threshold.
-  final androidPlugin = flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-  await androidPlugin?.requestNotificationsPermission();
-  await androidPlugin?.requestExactAlarmsPermission();
-
   // ── Step 4: Reset notification flags on a new year ─────
   // If the device is in a new calendar year, reset the flags
   // so threshold alerts can fire again (e.g., every Jan 1)
