@@ -16,6 +16,7 @@ import '../database/database_helper.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
 import 'profile_picture_picker.dart';
+import 'global_search_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -99,6 +100,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: Text(profile?.businessName ?? 'JavisAudit'),
         actions: [
+          IconButton(
+            tooltip: 'Search all records',
+            icon: const Icon(Icons.search),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GlobalSearchScreen()),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: GestureDetector(

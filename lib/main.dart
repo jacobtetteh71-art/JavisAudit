@@ -19,6 +19,7 @@ import 'providers/sales_provider.dart';
 import 'providers/vat_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/inventory_provider.dart';
 import 'screens/splash_screen.dart';
 
 // ── Global notification plugin instance ─────────────────────
@@ -105,6 +106,10 @@ Future<void> main() async {
         // AuthProvider: manages the login PIN/password and the
         // current session's locked/unlocked state
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+
+        // InventoryProvider: basic stock tracking, optionally
+        // linked from Sales to auto-reduce quantity on hand
+        ChangeNotifierProvider(create: (_) => InventoryProvider()),
       ],
       child: const MyApp(),
     ),

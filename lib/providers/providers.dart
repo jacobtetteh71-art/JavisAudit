@@ -12,3 +12,4 @@ export 'sales_provider.dart';
 export 'profile_provider.dart';
 export 'vat_provider.dart';
 export 'auth_provider.dart';
+export 'inventory_provider.dart';

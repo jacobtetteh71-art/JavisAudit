@@ -20,6 +20,8 @@ import 'audit_report_screen.dart';
 import 'backup_screen.dart';
 import 'settings_screen.dart';
 import 'lock_screen.dart';
+import 'customer_ledger_screen.dart';
+import 'inventory_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -102,6 +104,22 @@ class MoreScreen extends StatelessWidget {
           ),
           _menuTile(
             context,
+            icon: Icons.people_alt_outlined,
+            iconColor: AppColors.gold,
+            title: 'Customer Ledger',
+            subtitle: 'See who owes what, across all their sales',
+            screen: const CustomerLedgerScreen(),
+          ),
+          _menuTile(
+            context,
+            icon: Icons.inventory_2_outlined,
+            iconColor: AppColors.info,
+            title: 'Inventory',
+            subtitle: 'Track stock levels and low-stock alerts',
+            screen: const InventoryScreen(),
+          ),
+          _menuTile(
+            context,
             icon: Icons.gpp_maybe_outlined,
             iconColor: AppColors.gold,
             title: 'VAT Tracker',
@@ -151,7 +169,7 @@ class MoreScreen extends StatelessWidget {
           const SizedBox(height: 20),
           Center(
             child: Text(
-              'JavisAudit v1.1.0',
+              'JavisAudit v1.2.0',
               style: TextStyle(color: AppColors.textLight, fontSize: 11),
             ),
           ),

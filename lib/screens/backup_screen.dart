@@ -15,7 +15,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
+import '../models/models.dart';
 import '../utils/utils.dart';
+import '../utils/csv_exporter.dart';
 import 'verify_identity_sheet.dart';
 
 class BackupScreen extends StatefulWidget {
@@ -210,6 +212,43 @@ class _BackupScreenState extends State<BackupScreen> {
     return secondConfirm == true;
   }
 
+  // ── _exportCsv: CSV export for one record type ─────────────
+  Future<void> _exportCsv(String type) async {
+    final verified = await verifyIdentity(context, reason: 'export data to CSV');
+    if (!verified || !mounted) return;
+
+    setState(() => _isProcessing = true);
+    try {
+      switch (type) {
+        case 'income':
+          final rows = await DatabaseHelper.instance.getAllIncome();
+          await exportIncomeToCsv(rows.map((r) => Income.fromMap(r)).toList());
+          break;
+        case 'expenses':
+          final rows = await DatabaseHelper.instance.getAllExpenses();
+          await exportExpensesToCsv(rows.map((r) => Expense.fromMap(r)).toList());
+          break;
+        case 'sales':
+          final rows = await DatabaseHelper.instance.getAllSales();
+          await exportSalesToCsv(rows.map((r) => Sale.fromMap(r)).toList());
+          break;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('CSV exported!'), backgroundColor: AppColors.primary),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV export failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -245,6 +284,60 @@ class _BackupScreenState extends State<BackupScreen> {
                   buttonLabel: 'Choose Backup File',
                   buttonColor: AppColors.expense,
                   onPressed: _isProcessing ? null : _restoreBackup,
+                ),
+                const SizedBox(height: 14),
+
+                // ── CSV export card ────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.table_chart_outlined, color: AppColors.info),
+                          SizedBox(width: 8),
+                          Text('Export to CSV / Excel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Share a spreadsheet-ready file for your accountant — opens in '
+                        'Excel, Google Sheets, or any spreadsheet app.',
+                        style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isProcessing ? null : () => _exportCsv('income'),
+                              child: const Text('Income', style: TextStyle(fontSize: 12)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isProcessing ? null : () => _exportCsv('expenses'),
+                              child: const Text('Expenses', style: TextStyle(fontSize: 12)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isProcessing ? null : () => _exportCsv('sales'),
+                              child: const Text('Sales', style: TextStyle(fontSize: 12)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
 

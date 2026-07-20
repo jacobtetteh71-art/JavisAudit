@@ -226,6 +226,7 @@ class Sale {
   final double amountPaid;        // Running total of everything paid so far
   final String? notes;
   final int? incomeId;            // FK to income table (set when status = 'Paid')
+  final int? inventoryItemId;     // FK to inventory_items (set when sold from stock)
   // ── Optional cheque details (only meaningful when paymentMethod == 'Cheque') ──
   final String? chequeAccountNumber;
   final String? chequeAccountName;
@@ -247,6 +248,7 @@ class Sale {
     this.amountPaid = 0,
     this.notes,
     this.incomeId,
+    this.inventoryItemId,
     this.chequeAccountNumber,
     this.chequeAccountName,
     this.chequeNumber,
@@ -281,6 +283,7 @@ class Sale {
       amountPaid:      (map['amount_paid'] as num?)?.toDouble() ?? 0,
       notes:           map['notes'] as String?,
       incomeId:        map['income_id'] as int?,
+      inventoryItemId: map['inventory_item_id'] as int?,
       chequeAccountNumber: map['cheque_account_number'] as String?,
       chequeAccountName:   map['cheque_account_name'] as String?,
       chequeNumber:        map['cheque_number'] as String?,
@@ -303,6 +306,7 @@ class Sale {
       'amount_paid':      amountPaid,
       'notes':            notes,
       'income_id':        incomeId,
+      'inventory_item_id': inventoryItemId,
       'cheque_account_number': chequeAccountNumber,
       'cheque_account_name':   chequeAccountName,
       'cheque_number':         chequeNumber,
@@ -509,4 +513,111 @@ class BusinessProfile {
     'Construction',
     'Other',
   ];
+}
+
+// ============================================================
+// models/inventory_item_model.dart  –  Stock Item Data Model
+// ============================================================
+// Basic inventory tracking. When a Sale is linked to one of these
+// (via Sale.inventoryItemId), completing the sale automatically
+// reduces quantityOnHand.
+
+class InventoryItem {
+  final int? id;
+  final String itemName;         // Must be unique — used to match against Sales
+  final int quantityOnHand;
+  final double costPrice;        // What the business paid per unit
+  final double sellingPrice;     // What the business sells it for per unit
+  final int reorderLevel;        // Stock level at which it's flagged "low"
+  final String createdAt;
+  final String? updatedAt;
+
+  const InventoryItem({
+    this.id,
+    required this.itemName,
+    required this.quantityOnHand,
+    this.costPrice = 0,
+    this.sellingPrice = 0,
+    this.reorderLevel = 5,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  // Whether this item needs restocking soon
+  bool get isLowStock => quantityOnHand <= reorderLevel;
+
+  factory InventoryItem.fromMap(Map<String, dynamic> map) {
+    return InventoryItem(
+      id:              map['id'] as int?,
+      itemName:        map['item_name'] as String,
+      quantityOnHand:  map['quantity_on_hand'] as int,
+      costPrice:       (map['cost_price'] as num?)?.toDouble() ?? 0,
+      sellingPrice:    (map['selling_price'] as num?)?.toDouble() ?? 0,
+      reorderLevel:    map['reorder_level'] as int? ?? 5,
+      createdAt:       map['created_at'] as String,
+      updatedAt:       map['updated_at'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'item_name':        itemName,
+      'quantity_on_hand': quantityOnHand,
+      'cost_price':       costPrice,
+      'selling_price':    sellingPrice,
+      'reorder_level':    reorderLevel,
+      'created_at':       createdAt,
+      'updated_at':       updatedAt,
+    };
+  }
+}
+
+// ============================================================
+// models/expense_template_model.dart  –  Recurring Expense Template
+// ============================================================
+// Saved once, then re-logged as a brand-new Expense entry (dated
+// today) with a single tap — for expenses that repeat every month
+// like rent, salaries, or utilities.
+
+class ExpenseTemplate {
+  final int? id;
+  final String description;
+  final double amount;
+  final String category;
+  final String paymentMethod;
+  final String? notes;
+  final String createdAt;
+
+  const ExpenseTemplate({
+    this.id,
+    required this.description,
+    required this.amount,
+    required this.category,
+    required this.paymentMethod,
+    this.notes,
+    required this.createdAt,
+  });
+
+  factory ExpenseTemplate.fromMap(Map<String, dynamic> map) {
+    return ExpenseTemplate(
+      id:            map['id'] as int?,
+      description:   map['description'] as String,
+      amount:        (map['amount'] as num).toDouble(),
+      category:      map['category'] as String,
+      paymentMethod: map['payment_method'] as String,
+      notes:         map['notes'] as String?,
+      createdAt:     map['created_at'] as String,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'description':    description,
+      'amount':         amount,
+      'category':       category,
+      'payment_method': paymentMethod,
+      'notes':          notes,
+      'created_at':     createdAt,
+    };
+  }
 }

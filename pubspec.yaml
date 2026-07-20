@@ -5,7 +5,7 @@ description: A lightweight offline-first mobile digital ledger for VAT complianc
 publish_to: 'none'
 
 # Version of the app — major.minor.patch+buildNumber
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -69,6 +69,10 @@ dependencies:
   # image_picker: lets the user pick a profile picture from the
   # device camera or photo gallery
   image_picker: ^1.1.2
+
+  # csv: builds CSV files for Income/Expense/Sales export — universally
+  # readable in Excel, Google Sheets, and every spreadsheet tool
+  csv: ^6.0.0
 
   # cupertino_icons: provides the default iOS-style icons (used by Flutter)
   cupertino_icons: ^1.0.8

@@ -19,6 +19,17 @@ import '../utils/utils.dart';
 import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
 
+// Public entry point so other screens (Global Search) can open
+// the same expense detail view used here.
+void showExpenseDetailSheet(BuildContext context, Expense expense) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ExpenseDetailSheet(expense: expense),
+  );
+}
+
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
 
@@ -37,6 +48,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ExpenseProvider>().loadAll();
+      context.read<ExpenseProvider>().loadTemplates();
     });
   }
 
@@ -46,6 +58,40 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _AddExpenseSheet(),
+    );
+  }
+
+  // ── _logTemplate: the "one tap to re-log this month's rent" flow ─
+  Future<void> _logTemplate(BuildContext context, ExpenseTemplate template) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Log this expense?'),
+        content: Text(
+          'Log "${template.description}" for ${AppFormat.currency(template.amount)} '
+          'dated today?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Log It'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final success = await context.read<ExpenseProvider>().logTemplate(template);
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success
+            ? '${template.description} logged for today!'
+            : 'Failed to log expense. Please try again.'),
+        backgroundColor: success ? AppColors.primary : Colors.red,
+      ),
     );
   }
 
@@ -77,7 +123,21 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Expenses')),
+      appBar: AppBar(
+        title: const Text('Expenses'),
+        actions: [
+          IconButton(
+            tooltip: 'Recurring Templates',
+            icon: const Icon(Icons.repeat),
+            onPressed: () => showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => const _TemplatesManagerSheet(),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddExpenseSheet,
         backgroundColor: AppColors.expense,
@@ -108,6 +168,42 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     ],
                   ),
                 ),
+                if (provider.templates.isNotEmpty)
+                  Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('Quick Add — Recurring',
+                              style: TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+                        ),
+                        const SizedBox(height: 6),
+                        SizedBox(
+                          height: 40,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: provider.templates.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: 8),
+                            itemBuilder: (_, index) {
+                              final template = provider.templates[index];
+                              return ActionChip(
+                                avatar: const Icon(Icons.repeat, size: 16, color: AppColors.expense),
+                                label: Text(
+                                  '${template.description} (${AppFormat.currency(template.amount)})',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                onPressed: () => _logTemplate(context, template),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 SizedBox(
                   height: 44,
                   child: ListView.separated(
@@ -970,6 +1066,251 @@ class _RecordExpensePaymentSheetState extends State<_RecordExpensePaymentSheet> 
               const SizedBox(height: 8),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// _TemplatesManagerSheet  –  Manage Recurring Expense Templates
+// ============================================================
+class _TemplatesManagerSheet extends StatefulWidget {
+  const _TemplatesManagerSheet();
+
+  @override
+  State<_TemplatesManagerSheet> createState() => _TemplatesManagerSheetState();
+}
+
+class _TemplatesManagerSheetState extends State<_TemplatesManagerSheet> {
+  bool _showAddForm = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final templates = context.watch<ExpenseProvider>().templates;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Recurring Templates', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                    TextButton.icon(
+                      onPressed: () => setState(() => _showAddForm = !_showAddForm),
+                      icon: Icon(_showAddForm ? Icons.close : Icons.add),
+                      label: Text(_showAddForm ? 'Cancel' : 'New Template'),
+                    ),
+                  ],
+                ),
+              ),
+              if (_showAddForm)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _AddTemplateForm(onSaved: () => setState(() => _showAddForm = false)),
+                ),
+              Expanded(
+                child: templates.isEmpty && !_showAddForm
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'No recurring templates yet. Save one for expenses like rent, '
+                            'salaries, or utilities that repeat every month.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.textMuted),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: templates.length,
+                        itemBuilder: (context, index) {
+                          final t = templates[index];
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(t.description, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                      Text('${t.category} • ${t.paymentMethod}',
+                                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                    ],
+                                  ),
+                                ),
+                                Text(AppFormat.currency(t.amount),
+                                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                  onPressed: () => _deleteTemplate(context, t),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteTemplate(BuildContext context, ExpenseTemplate template) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this template?'),
+        content: Text('Delete "${template.description}"? This only removes the template, '
+            'not any expenses already logged from it.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final verified = await verifyIdentity(context, reason: 'delete this recurring template');
+    if (!verified || !context.mounted) return;
+
+    await context.read<ExpenseProvider>().deleteTemplate(template.id!);
+  }
+}
+
+// ============================================================
+// _AddTemplateForm  –  Save a new recurring expense template
+// ============================================================
+class _AddTemplateForm extends StatefulWidget {
+  final VoidCallback onSaved;
+  const _AddTemplateForm({required this.onSaved});
+
+  @override
+  State<_AddTemplateForm> createState() => _AddTemplateFormState();
+}
+
+class _AddTemplateFormState extends State<_AddTemplateForm> {
+  final _formKey = GlobalKey<FormState>();
+  final _descriptionCtrl = TextEditingController();
+  final _amountCtrl = TextEditingController();
+  String? _selectedCategory;
+  String? _selectedPaymentMethod;
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _descriptionCtrl.dispose();
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedCategory == null || _selectedPaymentMethod == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category and payment method.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    final template = ExpenseTemplate(
+      description: _descriptionCtrl.text.trim(),
+      amount: double.parse(_amountCtrl.text.trim()),
+      category: _selectedCategory!,
+      paymentMethod: _selectedPaymentMethod!,
+      createdAt: DateTime.now().toIso8601String(),
+    );
+    final success = await context.read<ExpenseProvider>().addTemplate(template);
+    setState(() => _isSaving = false);
+
+    if (success) widget.onSaved();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.expenseLight,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            TextFormField(
+              controller: _descriptionCtrl,
+              decoration: const InputDecoration(labelText: 'Description *', border: OutlineInputBorder()),
+              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+            ),
+            const SizedBox(height: 10),
+            TextFormField(
+              controller: _amountCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Amount *', prefixText: 'GH₵ ', border: OutlineInputBorder()),
+              validator: (v) {
+                final amount = double.tryParse(v ?? '');
+                return (amount == null || amount <= 0) ? 'Enter a valid amount' : null;
+              },
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
+              items: Expense.categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              onChanged: (v) => setState(() => _selectedCategory = v),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: _selectedPaymentMethod,
+              decoration: const InputDecoration(labelText: 'Payment Method *', border: OutlineInputBorder()),
+              items: Expense.paymentMethods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+              onChanged: (v) => setState(() => _selectedPaymentMethod = v),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.expense),
+                onPressed: _isSaving ? null : _save,
+                child: _isSaving
+                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Save Template'),
+              ),
+            ),
+          ],
         ),
       ),
     );

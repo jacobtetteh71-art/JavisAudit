@@ -15,6 +15,17 @@ import '../utils/utils.dart';
 import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
 
+// Public entry point so other screens (Global Search) can open
+// the same income detail view used here.
+void showIncomeDetailSheet(BuildContext context, Income income) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _IncomeDetailSheet(income: income),
+  );
+}
+
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
 
