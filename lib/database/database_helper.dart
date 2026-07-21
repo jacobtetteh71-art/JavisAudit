@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -182,6 +182,28 @@ class DatabaseHelper {
       // Optional link from a sale back to the inventory item it sold
       // (nullable — sales can still be free-text with no linked item)
       await db.execute('ALTER TABLE sales ADD COLUMN inventory_item_id INTEGER');
+    }
+
+    if (oldVersion < 8) {
+      // Customers directory — phone/email, kept separate from Sales
+      // so contact details survive even if a customer's name is
+      // typed slightly differently on a future sale.
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS customers (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL,
+          phone       TEXT,
+          email       TEXT,
+          created_at  TEXT    NOT NULL
+        )
+      ''');
+
+      // Advanced inventory details: SKU/code, unit of measure,
+      // supplier, and free-form notes.
+      await db.execute("ALTER TABLE inventory_items ADD COLUMN sku TEXT");
+      await db.execute("ALTER TABLE inventory_items ADD COLUMN supplier TEXT");
+      await db.execute("ALTER TABLE inventory_items ADD COLUMN unit TEXT");
+      await db.execute("ALTER TABLE inventory_items ADD COLUMN notes TEXT");
     }
   }
 
@@ -373,7 +395,22 @@ class DatabaseHelper {
         cost_price          REAL    NOT NULL DEFAULT 0,
         selling_price       REAL    NOT NULL DEFAULT 0,
         low_stock_threshold INTEGER NOT NULL DEFAULT 5,
+        sku                 TEXT,
+        supplier            TEXT,
+        unit                TEXT,
+        notes               TEXT,
         created_at          TEXT    NOT NULL
+      )
+    ''');
+
+    // ── Table 9: customers ───────────────────────────────────
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS customers (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT    NOT NULL,
+        phone       TEXT,
+        email       TEXT,
+        created_at  TEXT    NOT NULL
       )
     ''');
   }
@@ -717,6 +754,53 @@ class DatabaseHelper {
     await db.update('inventory_items', {'stock_quantity': updated}, where: 'id = ?', whereArgs: [itemId]);
   }
 
+  // Which inventory items have sold the most (by quantity), so the
+  // owner knows what to restock first to keep cash moving. Only
+  // counts sales that were actually linked to an inventory item.
+  Future<List<Map<String, dynamic>>> getBestSellingItems({int limit = 10}) async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT i.id, i.name, i.stock_quantity,
+             COALESCE(SUM(s.quantity), 0)            AS units_sold,
+             COALESCE(SUM(s.total_amount), 0)         AS revenue
+      FROM inventory_items i
+      LEFT JOIN sales s ON s.inventory_item_id = i.id
+      GROUP BY i.id
+      ORDER BY units_sold DESC
+      LIMIT ?
+    ''', [limit]);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // CUSTOMERS (contact directory, separate from Sales)
+  // ══════════════════════════════════════════════════════════
+
+  Future<int> insertCustomer(Map<String, dynamic> customer) async {
+    final db = await database;
+    return await db.insert('customers', customer);
+  }
+
+  Future<List<Map<String, dynamic>>> getCustomers() async {
+    final db = await database;
+    return await db.query('customers', orderBy: 'name ASC');
+  }
+
+  Future<Map<String, dynamic>?> getCustomerByName(String name) async {
+    final db = await database;
+    final rows = await db.query('customers', where: 'name = ?', whereArgs: [name], limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<int> updateCustomer(int id, Map<String, dynamic> customer) async {
+    final db = await database;
+    return await db.update('customers', customer, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> deleteCustomer(int id) async {
+    final db = await database;
+    return await db.delete('customers', where: 'id = ?', whereArgs: [id]);
+  }
+
   // ══════════════════════════════════════════════════════════
   // GLOBAL SEARCH (Income + Expenses + Sales)
   // ══════════════════════════════════════════════════════════
@@ -946,6 +1030,7 @@ class DatabaseHelper {
       await txn.delete('business_documents');
       await txn.delete('recurring_expense_templates');
       await txn.delete('inventory_items');
+      await txn.delete('customers');
       await txn.delete('settings');
     });
   }

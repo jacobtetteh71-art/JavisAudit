@@ -38,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String? _selectedBusinessType;
   bool _isSaving = false;
+  bool _isAuthorized = false;
 
   @override
   void initState() {
@@ -55,6 +56,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _graTinCtrl       = TextEditingController(text: profile?.graTin ?? '');
     _vatNumberCtrl    = TextEditingController(text: profile?.vatNumber ?? '');
     _selectedBusinessType = profile?.businessType;
+
+    // Business/owner contact details, GRA TIN, and VAT number are
+    // sensitive — the fields above are pre-filled immediately, so
+    // gate the whole screen behind a PIN/password check before it's
+    // ever shown, rather than only checking before saving changes.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _authorize());
+  }
+
+  Future<void> _authorize() async {
+    final verified = await verifyIdentity(context, reason: 'view and update the business profile');
+    if (!mounted) return;
+    if (!verified) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _isAuthorized = true);
   }
 
   @override
@@ -179,6 +196,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isAuthorized) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(title: Text('Settings')),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Settings')),

@@ -21,7 +21,8 @@ import 'recurring_expense_templates_screen.dart';
 import 'verify_identity_sheet.dart';
 
 class ExpenseScreen extends StatefulWidget {
-  const ExpenseScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const ExpenseScreen({super.key, this.onMenuTap});
 
   @override
   State<ExpenseScreen> createState() => _ExpenseScreenState();
@@ -79,6 +80,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Menu',
+          onPressed: widget.onMenuTap,
+        ),
         title: const Text('Expenses'),
         actions: [
           IconButton(

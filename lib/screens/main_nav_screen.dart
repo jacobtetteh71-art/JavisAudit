@@ -1,14 +1,21 @@
 // ============================================================
-// screens/main_nav_screen.dart  –  Bottom Navigation Shell
+// screens/main_nav_screen.dart  –  Slide Drawer Navigation Shell
 // ============================================================
 // This is the persistent shell that holds all five main tabs.
 // Switching tabs does NOT rebuild the screen content that was
 // already loaded — IndexedStack keeps all tabs alive in memory
 // so the user's scroll position is preserved.
+//
+// Navigation is a slide-out Drawer (rather than a bottom tab bar).
+// Each tab screen gets a menu button wired to open this Drawer via
+// a GlobalKey<ScaffoldState>, since they're nested inside their own
+// Scaffolds and can't reach this one through Scaffold.of(context).
 // ============================================================
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/providers.dart';
 import '../utils/utils.dart';
 import 'dashboard_screen.dart';
 import 'income_screen.dart';
@@ -24,22 +31,106 @@ class MainNavScreen extends StatefulWidget {
 }
 
 class _MainNavScreenState extends State<MainNavScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   // Tracks which tab is currently selected (0 = Dashboard)
   int _currentIndex = 0;
 
-  // The five main screens of the app
-  // These are created once and kept alive by IndexedStack
-  final List<Widget> _screens = const [
-    DashboardScreen(),  // Tab 0: Home / Dashboard
-    IncomeScreen(),     // Tab 1: Record Income
-    ExpenseScreen(),    // Tab 2: Record Expenses
-    SalesScreen(),      // Tab 3: Record Sales
-    MoreScreen(),       // Tab 4: Reports, VAT, Audit, Backup, Settings
+  static const _labels = ['Home', 'Record Income', 'Record Expenses', 'Record Sales', 'More'];
+  static const _icons = [
+    Icons.dashboard_outlined,
+    Icons.add_circle_outline,
+    Icons.remove_circle_outline,
+    Icons.point_of_sale_outlined,
+    Icons.grid_view_outlined,
   ];
+  static const _activeIcons = [
+    Icons.dashboard,
+    Icons.add_circle,
+    Icons.remove_circle,
+    Icons.point_of_sale,
+    Icons.grid_view,
+  ];
+
+  void _openDrawer() => _scaffoldKey.currentState?.openDrawer();
+
+  void _selectTab(int index) {
+    setState(() => _currentIndex = index);
+    Navigator.pop(context); // close the drawer
+  }
+
+  // The five main screens of the app. Built fresh each time (not
+  // const) since each now needs the _openDrawer callback wired in.
+  List<Widget> get _screens => [
+        DashboardScreen(onMenuTap: _openDrawer),
+        IncomeScreen(onMenuTap: _openDrawer),
+        ExpenseScreen(onMenuTap: _openDrawer),
+        SalesScreen(onMenuTap: _openDrawer),
+        MoreScreen(onMenuTap: _openDrawer),
+      ];
 
   @override
   Widget build(BuildContext context) {
+    final profile = context.watch<ProfileProvider>().profile;
+
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: Drawer(
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(color: AppColors.primary),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const CircleAvatar(
+                      radius: 26,
+                      backgroundColor: Colors.white24,
+                      child: Icon(Icons.business, color: Colors.white),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(profile?.businessName ?? 'JavisAudit',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    if (profile?.ownerName != null)
+                      Text(profile!.ownerName,
+                          style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: _labels.length,
+                  itemBuilder: (_, index) {
+                    final isSelected = index == _currentIndex;
+                    return ListTile(
+                      selected: isSelected,
+                      selectedTileColor: AppColors.primaryLight,
+                      leading: Icon(
+                        isSelected ? _activeIcons[index] : _icons[index],
+                        color: isSelected ? AppColors.primary : AppColors.textMuted,
+                      ),
+                      title: Text(
+                        _labels[index],
+                        style: TextStyle(
+                          color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                      onTap: () => _selectTab(index),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
       // ── IndexedStack ──────────────────────────────────────
       // Unlike PageView, IndexedStack keeps all pages in the
       // widget tree. Only the active one is visible, but all
@@ -47,53 +138,6 @@ class _MainNavScreenState extends State<MainNavScreen> {
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,
-      ),
-
-      // ── Bottom Navigation Bar ─────────────────────────────
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        // onTap is called when the user taps a tab icon
-        onTap: (index) => setState(() => _currentIndex = index),
-
-        // 'fixed' keeps all labels visible (not just selected)
-        type: BottomNavigationBarType.fixed,
-
-        // Colours matching our brand palette
-        selectedItemColor:   AppColors.primary,
-        unselectedItemColor: AppColors.textMuted,
-        backgroundColor:     Colors.white,
-
-        // Font size for labels
-        selectedFontSize:   11,
-        unselectedFontSize: 11,
-
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle_outline),
-            activeIcon: Icon(Icons.add_circle),
-            label: 'Income',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.remove_circle_outline),
-            activeIcon: Icon(Icons.remove_circle),
-            label: 'Expenses',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.point_of_sale_outlined),
-            activeIcon: Icon(Icons.point_of_sale),
-            label: 'Sales',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.grid_view_outlined),
-            activeIcon: Icon(Icons.grid_view),
-            label: 'More',
-          ),
-        ],
       ),
     );
   }

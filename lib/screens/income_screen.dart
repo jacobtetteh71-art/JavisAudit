@@ -16,7 +16,8 @@ import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
 
 class IncomeScreen extends StatefulWidget {
-  const IncomeScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const IncomeScreen({super.key, this.onMenuTap});
 
   @override
   State<IncomeScreen> createState() => _IncomeScreenState();
@@ -88,6 +89,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Menu',
+          onPressed: widget.onMenuTap,
+        ),
         title: const Text('Income'),
       ),
       // Floating button opens the Add Income form

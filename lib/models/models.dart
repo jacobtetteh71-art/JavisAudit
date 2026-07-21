@@ -471,6 +471,11 @@ class InventoryItem {
   final double costPrice;
   final double sellingPrice;
   final int lowStockThreshold;
+  // ── Advanced (optional) details ─────────────────────────
+  final String? sku;
+  final String? supplier;
+  final String? unit;
+  final String? notes;
   final String createdAt;
 
   const InventoryItem({
@@ -480,11 +485,16 @@ class InventoryItem {
     this.costPrice = 0,
     this.sellingPrice = 0,
     this.lowStockThreshold = 5,
+    this.sku,
+    this.supplier,
+    this.unit,
+    this.notes,
     required this.createdAt,
   });
 
   bool get isLowStock => stockQuantity <= lowStockThreshold;
   bool get isOutOfStock => stockQuantity <= 0;
+  double get stockValue => stockQuantity * costPrice;
 
   factory InventoryItem.fromMap(Map<String, dynamic> map) {
     return InventoryItem(
@@ -494,6 +504,10 @@ class InventoryItem {
       costPrice:          (map['cost_price'] as num?)?.toDouble() ?? 0,
       sellingPrice:       (map['selling_price'] as num?)?.toDouble() ?? 0,
       lowStockThreshold:  map['low_stock_threshold'] as int? ?? 5,
+      sku:                map['sku'] as String?,
+      supplier:           map['supplier'] as String?,
+      unit:               map['unit'] as String?,
+      notes:              map['notes'] as String?,
       createdAt:          map['created_at'] as String,
     );
   }
@@ -505,7 +519,52 @@ class InventoryItem {
       'cost_price':          costPrice,
       'selling_price':       sellingPrice,
       'low_stock_threshold': lowStockThreshold,
+      'sku':                 sku,
+      'supplier':            supplier,
+      'unit':                unit,
+      'notes':               notes,
       'created_at':          createdAt,
+    };
+  }
+}
+
+// ============================================================
+// models/customer_model.dart  –  Customer Contact Directory
+// ============================================================
+// Kept separate from Sales so contact details survive independent
+// of how a customer's name happens to be typed on any one sale.
+
+class Customer {
+  final int? id;
+  final String name;
+  final String? phone;
+  final String? email;
+  final String createdAt;
+
+  const Customer({
+    this.id,
+    required this.name,
+    this.phone,
+    this.email,
+    required this.createdAt,
+  });
+
+  factory Customer.fromMap(Map<String, dynamic> map) {
+    return Customer(
+      id:        map['id'] as int?,
+      name:      map['name'] as String,
+      phone:     map['phone'] as String?,
+      email:     map['email'] as String?,
+      createdAt: map['created_at'] as String,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name':       name,
+      'phone':      phone,
+      'email':      email,
+      'created_at': createdAt,
     };
   }
 }

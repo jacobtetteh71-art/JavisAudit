@@ -331,12 +331,13 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
         ),
       );
 
-      // Step 3: Open the share sheet with the generated PDF.
-      // Printing.sharePdf() saves the bytes to a temp file and
-      // launches the native Android share dialog automatically.
-      await Printing.sharePdf(
-        bytes: await pdf.save(),
-        filename: 'JavisAudit_Financial_Report_$_selectedYear.pdf',
+      // Step 3: Show an in-app preview of the report first — the
+      // owner can review every page, then choose to print, save,
+      // or share from right inside that preview screen.
+      final bytes = await pdf.save();
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'JavisAudit_Financial_Report_$_selectedYear.pdf',
       );
     } catch (e) {
       if (mounted) {

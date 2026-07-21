@@ -19,7 +19,8 @@ import 'profile_picture_picker.dart';
 import 'global_search_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const DashboardScreen({super.key, this.onMenuTap});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -39,12 +40,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadDashboardData();
+
+    // Auto-refresh the dashboard whenever Income, Expenses, or Sales
+    // change anywhere else in the app (add/edit/delete/payment),
+    // instead of only refreshing when this screen is first opened.
+    context.read<IncomeProvider>().addListener(_loadDashboardData);
+    context.read<ExpenseProvider>().addListener(_loadDashboardData);
+    context.read<SalesProvider>().addListener(_loadDashboardData);
+  }
+
+  @override
+  void dispose() {
+    context.read<IncomeProvider>().removeListener(_loadDashboardData);
+    context.read<ExpenseProvider>().removeListener(_loadDashboardData);
+    context.read<SalesProvider>().removeListener(_loadDashboardData);
+    super.dispose();
   }
 
   // ── _loadDashboardData ─────────────────────────────────────
   // Runs multiple database queries in parallel using Future.wait
   // for faster loading than awaiting them one at a time.
   Future<void> _loadDashboardData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     final db = DatabaseHelper.instance;
@@ -98,6 +115,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Menu',
+          onPressed: widget.onMenuTap,
+        ),
         title: Text(profile?.businessName ?? 'JavisAudit'),
         actions: [
           IconButton(

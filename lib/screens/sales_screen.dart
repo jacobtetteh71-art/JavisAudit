@@ -20,7 +20,8 @@ import '../widgets/cheque_details_fields.dart';
 import 'verify_identity_sheet.dart';
 
 class SalesScreen extends StatefulWidget {
-  const SalesScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const SalesScreen({super.key, this.onMenuTap});
 
   @override
   State<SalesScreen> createState() => _SalesScreenState();
@@ -52,7 +53,14 @@ class _SalesScreenState extends State<SalesScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Sales')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Menu',
+          onPressed: widget.onMenuTap,
+        ),
+        title: const Text('Sales'),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddSaleSheet,
         backgroundColor: AppColors.gold,
@@ -246,11 +254,24 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   final _chequeDetails = ChequeDetailsController();
   List<InventoryItem> _inventoryItems = [];
   InventoryItem? _selectedInventoryItem;
+  List<String> _customerNames = [];
+  bool _autocompleteListenerAdded = false;
 
   Future<void> _loadInventoryItems() async {
     final rows = await DatabaseHelper.instance.getInventoryItems();
     if (!mounted) return;
     setState(() => _inventoryItems = rows.map((r) => InventoryItem.fromMap(r)).toList());
+  }
+
+  Future<void> _loadCustomerNames() async {
+    final ledger = await DatabaseHelper.instance.getCustomerLedger();
+    final customers = await DatabaseHelper.instance.getCustomers();
+    if (!mounted) return;
+    final names = <String>{
+      ...ledger.map((r) => r['customer_name'] as String),
+      ...customers.map((c) => c['name'] as String),
+    };
+    setState(() => _customerNames = names.toList()..sort());
   }
 
   // The live-calculated total — recomputed on every keystroke
@@ -275,6 +296,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     _unitPriceCtrl.addListener(() => setState(() {}));
     _costPriceCtrl.addListener(() => setState(() {}));
     _loadInventoryItems();
+    _loadCustomerNames();
   }
 
   @override
@@ -421,11 +443,30 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                 ),
                 const SizedBox(height: 12),
 
-                TextFormField(
-                  controller: _customerCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Customer Name (optional)', border: OutlineInputBorder(),
-                  ),
+                Autocomplete<String>(
+                  optionsBuilder: (textEditingValue) {
+                    if (textEditingValue.text.trim().isEmpty) return const Iterable<String>.empty();
+                    return _customerNames.where(
+                      (name) => name.toLowerCase().contains(textEditingValue.text.toLowerCase()),
+                    );
+                  },
+                  onSelected: (selection) => _customerCtrl.text = selection,
+                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                    if (!_autocompleteListenerAdded) {
+                      // Keep the Autocomplete's own field in sync with
+                      // _customerCtrl, which is what _submit() reads from
+                      controller.addListener(() => _customerCtrl.text = controller.text);
+                      _autocompleteListenerAdded = true;
+                    }
+                    return TextFormField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      decoration: const InputDecoration(
+                        labelText: 'Customer Name (optional)', border: OutlineInputBorder(),
+                        helperText: 'Start typing to find an existing customer.',
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
 

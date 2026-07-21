@@ -12,6 +12,9 @@ import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
 import '../utils/utils.dart';
+import 'income_screen.dart';
+import 'expense_screen.dart';
+import 'sales_screen.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
   const GlobalSearchScreen({super.key});
@@ -80,6 +83,24 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
     }
   }
 
+  // Opens the screen that owns this record type. The record list
+  // there is filterable/scrollable, so this gets the owner straight
+  // to the right place to find the exact entry.
+  void _openRecord(String type) {
+    Widget screen;
+    switch (type) {
+      case 'Income':
+        screen = const IncomeScreen();
+        break;
+      case 'Expense':
+        screen = const ExpenseScreen();
+        break;
+      default:
+        screen = const SalesScreen();
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -123,7 +144,10 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                         final row = _results[index];
                         final type = row['record_type'] as String;
                         final amount = (row['amount'] as num).toDouble();
-                        return Container(
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () => _openRecord(type),
+                          child: Container(
                           margin: const EdgeInsets.only(bottom: 8),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -164,6 +188,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                                 style: TextStyle(fontWeight: FontWeight.bold, color: _typeColor(type)),
                               ),
                             ],
+                          ),
                           ),
                         );
                       },

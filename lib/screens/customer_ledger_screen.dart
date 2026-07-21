@@ -21,6 +21,7 @@ class CustomerLedgerScreen extends StatefulWidget {
 
 class _CustomerLedgerScreenState extends State<CustomerLedgerScreen> {
   List<Map<String, dynamic>> _ledger = [];
+  Map<String, Map<String, dynamic>> _contacts = {}; // name -> customers row
   bool _isLoading = true;
 
   @override
@@ -32,9 +33,11 @@ class _CustomerLedgerScreenState extends State<CustomerLedgerScreen> {
   Future<void> _load() async {
     setState(() => _isLoading = true);
     final rows = await DatabaseHelper.instance.getCustomerLedger();
+    final customers = await DatabaseHelper.instance.getCustomers();
     if (!mounted) return;
     setState(() {
       _ledger = rows;
+      _contacts = {for (var c in customers) c['name'] as String: c};
       _isLoading = false;
     });
   }
@@ -96,12 +99,13 @@ class _CustomerLedgerScreenState extends State<CustomerLedgerScreen> {
     final totalSales = (row['total_sales'] as num).toDouble();
     final txCount = row['transaction_count'] as int;
     final hasBalance = balance > 0.01;
+    final phone = _contacts[name]?['phone'] as String?;
 
     return InkWell(
       borderRadius: BorderRadius.circular(10),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => _CustomerDetailScreen(customerName: name)),
-      ),
+      onTap: () => Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => _CustomerDetailScreen(customerName: name)))
+          .then((_) => _load()),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
@@ -128,6 +132,16 @@ class _CustomerLedgerScreenState extends State<CustomerLedgerScreen> {
                   const SizedBox(height: 2),
                   Text('$txCount sale(s) • ${AppFormat.currency(totalSales)} total',
                       style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                  if (phone != null && phone.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(Icons.phone, size: 11, color: AppColors.textLight),
+                        const SizedBox(width: 3),
+                        Text(phone, style: const TextStyle(fontSize: 11, color: AppColors.textLight)),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -165,6 +179,7 @@ class _CustomerDetailScreen extends StatefulWidget {
 
 class _CustomerDetailScreenState extends State<_CustomerDetailScreen> {
   List<Sale> _sales = [];
+  Customer? _customer;
   bool _isLoading = true;
 
   @override
@@ -175,11 +190,23 @@ class _CustomerDetailScreenState extends State<_CustomerDetailScreen> {
 
   Future<void> _load() async {
     final rows = await DatabaseHelper.instance.getSalesForCustomer(widget.customerName);
+    final customerRow = await DatabaseHelper.instance.getCustomerByName(widget.customerName);
     if (!mounted) return;
     setState(() {
       _sales = rows.map((r) => Sale.fromMap(r)).toList();
+      _customer = customerRow != null ? Customer.fromMap(customerRow) : null;
       _isLoading = false;
     });
+  }
+
+  Future<void> _editContact() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditContactSheet(customerName: widget.customerName, existing: _customer),
+    );
+    if (result == true) _load();
   }
 
   @override
@@ -209,6 +236,35 @@ class _CustomerDetailScreenState extends State<_CustomerDetailScreen> {
                     ],
                   ),
                 ),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  color: Colors.white,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.contact_phone_outlined, size: 18, color: AppColors.textMuted),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: (_customer?.phone == null && _customer?.email == null)
+                            ? const Text('No contact details saved', style: TextStyle(fontSize: 12, color: AppColors.textMuted))
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (_customer?.phone != null && _customer!.phone!.isNotEmpty)
+                                    Text(_customer!.phone!, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  if (_customer?.email != null && _customer!.email!.isNotEmpty)
+                                    Text(_customer!.email!, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                                ],
+                              ),
+                      ),
+                      TextButton(
+                        onPressed: _editContact,
+                        child: Text(_customer == null ? 'Add Contact' : 'Edit'),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
                 Expanded(
                   child: ListView.builder(
                     padding: const EdgeInsets.all(12),
@@ -246,6 +302,109 @@ class _CustomerDetailScreenState extends State<_CustomerDetailScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+// ============================================================
+// _EditContactSheet  –  Add/edit a customer's phone & email
+// ============================================================
+class _EditContactSheet extends StatefulWidget {
+  final String customerName;
+  final Customer? existing;
+  const _EditContactSheet({required this.customerName, this.existing});
+
+  @override
+  State<_EditContactSheet> createState() => _EditContactSheetState();
+}
+
+class _EditContactSheetState extends State<_EditContactSheet> {
+  late final TextEditingController _phoneCtrl;
+  late final TextEditingController _emailCtrl;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneCtrl = TextEditingController(text: widget.existing?.phone ?? '');
+    _emailCtrl = TextEditingController(text: widget.existing?.email ?? '');
+  }
+
+  @override
+  void dispose() {
+    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _isSaving = true);
+    final data = {
+      'name':       widget.customerName,
+      'phone':      _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+      'email':      _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+      'created_at': widget.existing == null ? DateTime.now().toIso8601String() : widget.existing!.createdAt,
+    };
+
+    if (widget.existing != null && widget.existing!.id != null) {
+      await DatabaseHelper.instance.updateCustomer(widget.existing!.id!, data);
+    } else {
+      await DatabaseHelper.instance.insertCustomer(data);
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Contact for ${widget.customerName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone Number', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                onPressed: _isSaving ? null : _save,
+                child: _isSaving
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Save Contact'),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 }

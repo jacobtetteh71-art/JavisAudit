@@ -25,7 +25,8 @@ import 'inventory_screen.dart';
 import 'global_search_screen.dart';
 
 class MoreScreen extends StatelessWidget {
-  const MoreScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const MoreScreen({super.key, this.onMenuTap});
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +36,14 @@ class MoreScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('More')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Menu',
+          onPressed: onMenuTap,
+        ),
+        title: const Text('More'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
