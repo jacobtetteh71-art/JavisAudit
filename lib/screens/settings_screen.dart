@@ -197,10 +197,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_isAuthorized) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: AppColors.background,
-        appBar: AppBar(title: Text('Settings')),
-        body: Center(child: CircularProgressIndicator()),
+        appBar: AppBar(title: const Text('Settings')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
