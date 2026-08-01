@@ -18,6 +18,7 @@ import 'reports_screen.dart';
 import 'analytics_screen.dart';
 import 'audit_report_screen.dart';
 import 'backup_screen.dart';
+import 'sync_screen.dart';
 import 'settings_screen.dart';
 import 'lock_screen.dart';
 import 'customer_ledger_screen.dart';
@@ -150,6 +151,14 @@ class MoreScreen extends StatelessWidget {
             title: 'Year-End Financial Report',
             subtitle: 'Generate a formal PDF for GRA or your bank',
             screen: const AuditReportScreen(),
+          ),
+          _menuTile(
+            context,
+            icon: Icons.cloud_sync_outlined,
+            iconColor: AppColors.info,
+            title: 'Cloud Sync',
+            subtitle: 'Sync your ledger online across devices',
+            screen: const SyncScreen(),
           ),
           _menuTile(
             context,

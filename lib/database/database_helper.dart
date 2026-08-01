@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -204,6 +204,81 @@ class DatabaseHelper {
       await db.execute("ALTER TABLE inventory_items ADD COLUMN supplier TEXT");
       await db.execute("ALTER TABLE inventory_items ADD COLUMN unit TEXT");
       await db.execute("ALTER TABLE inventory_items ADD COLUMN notes TEXT");
+    }
+
+    if (oldVersion < 9) {
+      // Online (Cloud) Sync support — see services/sync_service.dart.
+      await _createSyncMetaAndTriggers(db);
+    }
+  }
+
+  // ── Tables that get change-tracking triggers ────────────────
+  // Every table whose data should travel to/from the cloud on a
+  // "Sync Now". (Files referenced by *_path columns — profile
+  // pictures, cheque photos, business documents — stay local
+  // only; only the text/number data syncs.)
+  static const List<String> _syncedTables = [
+    'business_profile',
+    'income',
+    'expenses',
+    'expense_payments',
+    'sales',
+    'sale_payments',
+    'recurring_expense_templates',
+    'inventory_items',
+    'customers',
+  ];
+
+  // ── _createSyncMetaAndTriggers ───────────────────────────────
+  // Sets up everything Cloud Sync needs to know "has anything
+  // changed on this device since we last talked to the cloud?"
+  // WITHOUT having to edit every single insert/update call
+  // scattered across the providers and screens.
+  //
+  // How it works:
+  //   1. A tiny single-row `sync_meta` table holds one timestamp:
+  //      last_modified_at — "the last time ANY synced table changed
+  //      on this device".
+  //   2. A SQLite TRIGGER fires automatically after every INSERT,
+  //      UPDATE, or DELETE on each synced table and stamps that
+  //      timestamp to right now. Triggers live in the database
+  //      itself, so they catch changes no matter which Dart method
+  //      wrote them.
+  //   3. SyncService compares this device's last_modified_at against
+  //      last_synced_at (also here) and the cloud's own timestamp to
+  //      decide whether to push, pull, or flag a conflict.
+  Future<void> _createSyncMetaAndTriggers(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_meta (
+        id                INTEGER PRIMARY KEY CHECK (id = 1),
+        last_modified_at  TEXT NOT NULL,
+        last_synced_at    TEXT,
+        cloud_uid         TEXT
+      )
+    ''');
+
+    // Only ever one row, id = 1 — INSERT OR IGNORE so re-running
+    // this on an already-migrated database is always safe.
+    await db.execute('''
+      INSERT OR IGNORE INTO sync_meta (id, last_modified_at)
+      VALUES (1, '${DateTime.now().toIso8601String()}')
+    ''');
+
+    for (final table in _syncedTables) {
+      for (final event in ['INSERT', 'UPDATE', 'DELETE']) {
+        final triggerName = 'trg_sync_${table}_${event.toLowerCase()}';
+        // DROP + CREATE keeps this idempotent across app upgrades
+        await db.execute('DROP TRIGGER IF EXISTS $triggerName');
+        await db.execute('''
+          CREATE TRIGGER $triggerName
+          AFTER $event ON $table
+          BEGIN
+            UPDATE sync_meta
+            SET last_modified_at = datetime('now')
+            WHERE id = 1;
+          END;
+        ''');
+      }
     }
   }
 
@@ -413,6 +488,10 @@ class DatabaseHelper {
         created_at  TEXT    NOT NULL
       )
     ''');
+
+    // ── Table 10: sync_meta + change-tracking triggers ────────
+    // See _createSyncMetaAndTriggers for the full explanation.
+    await _createSyncMetaAndTriggers(db);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -955,27 +1034,84 @@ class DatabaseHelper {
   }
 
   // ══════════════════════════════════════════════════════════
+  // ONLINE / CLOUD SYNC
+  // ══════════════════════════════════════════════════════════
+  // These four methods are the ONLY thing SyncService touches
+  // directly on the database — everything else it needs
+  // (exportAllData / restoreFromBackup) already existed for the
+  // local JSON backup feature and is reused as-is.
+
+  // Reads the single sync_meta row. Returns null only if the
+  // database somehow predates version 9 and hasn't upgraded yet.
+  Future<Map<String, dynamic>?> getSyncMeta() async {
+    final db = await database;
+    final rows = await db.query('sync_meta', where: 'id = 1', limit: 1);
+    return rows.isNotEmpty ? rows.first : null;
+  }
+
+  // Called right after a successful push OR pull so this device
+  // knows it's caught up as of `syncedAt` (which SyncService sets
+  // to the value BOTH sides agreed on, not just `DateTime.now()`,
+  // so clock drift between two devices can't cause false conflicts).
+  Future<void> markSynced({required DateTime syncedAt, required String cloudUid}) async {
+    final db = await database;
+    await db.update(
+      'sync_meta',
+      {
+        'last_synced_at': syncedAt.toIso8601String(),
+        'cloud_uid': cloudUid,
+      },
+      where: 'id = 1',
+    );
+  }
+
+  // Used only when restoring a cloud snapshot onto this device —
+  // stamps last_modified_at forward too, so we don't immediately
+  // think we have "new" local changes to push right back up.
+  Future<void> setSyncTimestamps({required DateTime modifiedAt, required DateTime syncedAt}) async {
+    final db = await database;
+    await db.update(
+      'sync_meta',
+      {
+        'last_modified_at': modifiedAt.toIso8601String(),
+        'last_synced_at': syncedAt.toIso8601String(),
+      },
+      where: 'id = 1',
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════
   // BACKUP / RESTORE
   // ══════════════════════════════════════════════════════════
 
-  // Export all data as a Map (later converted to JSON)
+  // Export all data as a Map (later converted to JSON).
+  // Used by BOTH the local "Export Backup" file feature and
+  // SyncService when pushing a snapshot to the cloud.
   Future<Map<String, dynamic>> exportAllData() async {
     final db = await database;
     // Fetch every row from every table
-    final profile      = await db.query('business_profile');
-    final income       = await db.query('income');
-    final expenses     = await db.query('expenses');
-    final sales        = await db.query('sales');
-    final salePayments = await db.query('sale_payments');
-    final settings     = await db.query('settings');
+    final profile            = await db.query('business_profile');
+    final income             = await db.query('income');
+    final expenses           = await db.query('expenses');
+    final expensePayments    = await db.query('expense_payments');
+    final sales              = await db.query('sales');
+    final salePayments       = await db.query('sale_payments');
+    final recurringTemplates = await db.query('recurring_expense_templates');
+    final inventoryItems     = await db.query('inventory_items');
+    final customers          = await db.query('customers');
+    final settings           = await db.query('settings');
 
     // Return as a nested map — easy to convert to JSON
     return {
       'business_profile': profile,
       'income': income,
       'expenses': expenses,
+      'expense_payments': expensePayments,
       'sales': sales,
       'sale_payments': salePayments,
+      'recurring_expense_templates': recurringTemplates,
+      'inventory_items': inventoryItems,
+      'customers': customers,
       'settings': settings,
       'exported_at': DateTime.now().toIso8601String(),
       'app_version': '1.1.0',
@@ -989,28 +1125,45 @@ class DatabaseHelper {
     // Use a transaction so either ALL data is restored
     // or NONE of it is (prevents partial/corrupt state)
     await db.transaction((txn) async {
-      // Wipe all existing data
+      // Wipe all existing data — children before parents, so
+      // foreign key references never dangle mid-transaction
+      await txn.delete('expense_payments');
       await txn.delete('sale_payments');
       await txn.delete('sales');
       await txn.delete('income');
       await txn.delete('expenses');
+      await txn.delete('recurring_expense_templates');
+      await txn.delete('inventory_items');
+      await txn.delete('customers');
       await txn.delete('business_profile');
       await txn.delete('settings');
 
-      // Re-insert from backup
-      final List profile      = data['business_profile'] ?? [];
-      final List income       = data['income'] ?? [];
-      final List expenses     = data['expenses'] ?? [];
-      final List sales        = data['sales'] ?? [];
-      final List salePayments = data['sale_payments'] ?? [];
-      final List settings     = data['settings'] ?? [];
+      // Re-insert from backup. `?? []` means older backup files
+      // (or cloud snapshots from before a table existed) restore
+      // fine — the newer table just comes back empty.
+      final List profile            = data['business_profile'] ?? [];
+      final List income              = data['income'] ?? [];
+      final List expenses            = data['expenses'] ?? [];
+      final List expensePayments      = data['expense_payments'] ?? [];
+      final List sales                = data['sales'] ?? [];
+      final List salePayments         = data['sale_payments'] ?? [];
+      final List recurringTemplates   = data['recurring_expense_templates'] ?? [];
+      final List inventoryItems       = data['inventory_items'] ?? [];
+      final List customers            = data['customers'] ?? [];
+      final List settings             = data['settings'] ?? [];
 
-      for (var row in profile)      await txn.insert('business_profile', Map<String, dynamic>.from(row));
-      for (var row in income)       await txn.insert('income',           Map<String, dynamic>.from(row));
-      for (var row in expenses)     await txn.insert('expenses',         Map<String, dynamic>.from(row));
-      for (var row in sales)        await txn.insert('sales',            Map<String, dynamic>.from(row));
-      for (var row in salePayments) await txn.insert('sale_payments',    Map<String, dynamic>.from(row));
-      for (var row in settings)     await txn.insert('settings',         Map<String, dynamic>.from(row));
+      // Parents first, then anything that can reference them, so
+      // this stays safe even if FK enforcement is ever turned on.
+      for (var row in profile)            await txn.insert('business_profile', Map<String, dynamic>.from(row));
+      for (var row in settings)           await txn.insert('settings', Map<String, dynamic>.from(row));
+      for (var row in customers)          await txn.insert('customers', Map<String, dynamic>.from(row));
+      for (var row in inventoryItems)     await txn.insert('inventory_items', Map<String, dynamic>.from(row));
+      for (var row in recurringTemplates) await txn.insert('recurring_expense_templates', Map<String, dynamic>.from(row));
+      for (var row in income)             await txn.insert('income', Map<String, dynamic>.from(row));
+      for (var row in expenses)           await txn.insert('expenses', Map<String, dynamic>.from(row));
+      for (var row in sales)              await txn.insert('sales', Map<String, dynamic>.from(row));
+      for (var row in expensePayments)    await txn.insert('expense_payments', Map<String, dynamic>.from(row));
+      for (var row in salePayments)       await txn.insert('sale_payments', Map<String, dynamic>.from(row));
     });
   }
 

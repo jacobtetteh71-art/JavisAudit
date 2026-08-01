@@ -10,6 +10,11 @@ plugins {
     id "kotlin-android"
     // The Flutter Gradle Plugin must come after Android & Kotlin
     id "dev.flutter.flutter-gradle-plugin"
+    // Cloud Sync (Firebase) — reads google-services.json in this
+    // folder. A PLACEHOLDER file is included so the build doesn't
+    // break, but Cloud Sync won't actually work until you replace it
+    // with your real one from the Firebase console (see SYNC_SETUP.md).
+    id "com.google.gms.google-services"
 }
 
 def localProperties = new Properties()
