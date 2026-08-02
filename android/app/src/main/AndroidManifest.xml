@@ -3,13 +3,24 @@
   ============================================================
   AndroidManifest.xml  –  App Permissions & Configuration
   ============================================================
-  Notice: there is NO "android.permission.INTERNET" entry here.
-  This is intentional — JavisAudit is fully offline-first and
-  the app should be architecturally incapable of making network
-  calls, as stated in the system design document (Section 8.1).
+  UPDATE: android.permission.INTERNET has been ADDED below to
+  support the new Cloud Sync feature (Firebase Auth + Firestore).
+  This changes the previous offline-only guarantee described in
+  the system design document (Section 8.1), which stated the app
+  was "architecturally incapable of making network calls." That
+  section should be revised to describe JavisAudit as
+  offline-first with OPTIONAL, owner-initiated cloud sync
+  instead — the app still works fully offline; INTERNET is only
+  ever used when the owner signs in and taps "Sync Now" (or the
+  device reconnects while already signed in).
   ============================================================
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required for Cloud Sync (Firebase Auth + Firestore). See the
+         note above — this is new as of the Cloud Sync feature. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
     <!-- Required so local notifications survive a device reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
@@ -65,13 +76,5 @@
             android:name="flutterEmbedding"
             android:value="2"/>
     </application>
-
-    <!--
-      IMPORTANT: We deliberately do NOT declare:
-        <uses-permission android:name="android.permission.INTERNET" />
-      This guarantees the app cannot transmit any business data
-      off the device, fulfilling the offline-first / data-residency
-      requirement described in the system specification.
-    -->
 
 </manifest>

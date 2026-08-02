@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 8,
+      version: 10,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -205,6 +205,135 @@ class DatabaseHelper {
       await db.execute("ALTER TABLE inventory_items ADD COLUMN unit TEXT");
       await db.execute("ALTER TABLE inventory_items ADD COLUMN notes TEXT");
     }
+
+    if (oldVersion < 10) {
+      // Feature: multi-item sales — several line items recorded
+      // together under one customer transaction share this id.
+      await db.execute("ALTER TABLE sales ADD COLUMN sale_group_id TEXT");
+
+      // Feature: stock & price audit trail — see
+      // _createInventoryChangeLogTable for the full explanation.
+      // Created here, BEFORE the oldVersion < 9 block below, so
+      // that if a database is jumping from, say, version 7 straight
+      // to 10, inventory_change_log already exists by the time
+      // _createSyncMetaAndTriggers tries to add triggers to it.
+      await _createInventoryChangeLogTable(db);
+    }
+
+    if (oldVersion < 9) {
+      // Online (Cloud) Sync support — see services/sync_service.dart.
+      await _createSyncMetaAndTriggers(db);
+    }
+
+    if (oldVersion < 10) {
+      // A database already at version 9 (Cloud Sync already set up)
+      // upgrading straight to 10 needs ONLY the new trigger added —
+      // _createSyncMetaAndTriggers above already ran on a prior
+      // upgrade and won't run again, so add it explicitly here too.
+      // DROP+CREATE makes this safe to run even if the oldVersion<9
+      // branch above already added it moments ago in this same upgrade.
+      await db.execute('DROP TRIGGER IF EXISTS trg_sync_inventory_change_log_insert');
+      await db.execute('''
+        CREATE TRIGGER trg_sync_inventory_change_log_insert
+        AFTER INSERT ON inventory_change_log
+        BEGIN
+          UPDATE sync_meta SET last_modified_at = datetime('now') WHERE id = 1;
+        END;
+      ''');
+    }
+  }
+
+  // ── inventory_change_log ─────────────────────────────────────
+  // One row every time a stock quantity, cost price, or selling
+  // price changes on an inventory item — see setInventoryStock,
+  // adjustInventoryStock, and updateInventoryPrices below, which
+  // are the only three places that ever write to it. Powers the
+  // "Change Log" view on the Inventory screen (feature request:
+  // an audit trail of stock and price changes with date/time).
+  Future<void> _createInventoryChangeLogTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS inventory_change_log (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        inventory_item_id  INTEGER NOT NULL,
+        item_name          TEXT    NOT NULL,
+        field_changed      TEXT    NOT NULL,
+        old_value          TEXT    NOT NULL,
+        new_value          TEXT    NOT NULL,
+        reason             TEXT,
+        changed_at         TEXT    NOT NULL
+      )
+    ''');
+  }
+
+  // ── Tables that get change-tracking triggers ────────────────
+  // Every table whose data should travel to/from the cloud on a
+  // "Sync Now". (Files referenced by *_path columns — profile
+  // pictures, cheque photos, business documents — stay local
+  // only; only the text/number data syncs.)
+  static const List<String> _syncedTables = [
+    'business_profile',
+    'income',
+    'expenses',
+    'expense_payments',
+    'sales',
+    'sale_payments',
+    'recurring_expense_templates',
+    'inventory_items',
+    'customers',
+    'inventory_change_log',
+  ];
+
+  // ── _createSyncMetaAndTriggers ───────────────────────────────
+  // Sets up everything Cloud Sync needs to know "has anything
+  // changed on this device since we last talked to the cloud?"
+  // WITHOUT having to edit every single insert/update call
+  // scattered across the providers and screens.
+  //
+  // How it works:
+  //   1. A tiny single-row `sync_meta` table holds one timestamp:
+  //      last_modified_at — "the last time ANY synced table changed
+  //      on this device".
+  //   2. A SQLite TRIGGER fires automatically after every INSERT,
+  //      UPDATE, or DELETE on each synced table and stamps that
+  //      timestamp to right now. Triggers live in the database
+  //      itself, so they catch changes no matter which Dart method
+  //      wrote them.
+  //   3. SyncService compares this device's last_modified_at against
+  //      last_synced_at (also here) and the cloud's own timestamp to
+  //      decide whether to push, pull, or flag a conflict.
+  Future<void> _createSyncMetaAndTriggers(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_meta (
+        id                INTEGER PRIMARY KEY CHECK (id = 1),
+        last_modified_at  TEXT NOT NULL,
+        last_synced_at    TEXT,
+        cloud_uid         TEXT
+      )
+    ''');
+
+    // Only ever one row, id = 1 — INSERT OR IGNORE so re-running
+    // this on an already-migrated database is always safe.
+    await db.execute('''
+      INSERT OR IGNORE INTO sync_meta (id, last_modified_at)
+      VALUES (1, '${DateTime.now().toIso8601String()}')
+    ''');
+
+    for (final table in _syncedTables) {
+      for (final event in ['INSERT', 'UPDATE', 'DELETE']) {
+        final triggerName = 'trg_sync_${table}_${event.toLowerCase()}';
+        // DROP + CREATE keeps this idempotent across app upgrades
+        await db.execute('DROP TRIGGER IF EXISTS $triggerName');
+        await db.execute('''
+          CREATE TRIGGER $triggerName
+          AFTER $event ON $table
+          BEGIN
+            UPDATE sync_meta
+            SET last_modified_at = datetime('now')
+            WHERE id = 1;
+          END;
+        ''');
+      }
+    }
   }
 
   // ── _createTables: define all five tables ─────────────────
@@ -312,6 +441,7 @@ class DatabaseHelper {
         cheque_account_name   TEXT,
         cheque_number         TEXT,
         cheque_image_path     TEXT,
+        sale_group_id    TEXT,
         created_at       TEXT    NOT NULL,
         FOREIGN KEY (income_id) REFERENCES income(id)
       )
@@ -413,6 +543,13 @@ class DatabaseHelper {
         created_at  TEXT    NOT NULL
       )
     ''');
+
+    // ── Table 10: sync_meta + change-tracking triggers ────────
+    // See _createSyncMetaAndTriggers for the full explanation.
+    // inventory_change_log is created FIRST so the trigger-creation
+    // loop inside _createSyncMetaAndTriggers finds it already there.
+    await _createInventoryChangeLogTable(db);
+    await _createSyncMetaAndTriggers(db);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -633,7 +770,46 @@ class DatabaseHelper {
     return await db.update('sales', sale, where: 'id = ?', whereArgs: [id]);
   }
 
-  // ── recordSalePayment: the core "finish paying" operation ──
+  // ── getSalesSummaryForRange: powers the Sales Performance report ─
+  // Returns total units sold, total revenue, and a per-item
+  // breakdown (both sorted by units sold, most first) for any
+  // date range — the caller works out what "Day/Week/Month/Year"
+  // actually means in calendar terms and just passes the two
+  // resulting 'YYYY-MM-DD' bounds in here.
+  Future<Map<String, dynamic>> getSalesSummaryForRange(String startDate, String endDate) async {
+    final db = await database;
+
+    final totals = await db.rawQuery('''
+      SELECT COALESCE(SUM(quantity), 0)     AS qty,
+             COALESCE(SUM(total_amount), 0) AS revenue,
+             COUNT(*)                       AS transaction_count
+      FROM sales
+      WHERE date BETWEEN ? AND ?
+    ''', [startDate, endDate]);
+
+    final byItem = await db.rawQuery('''
+      SELECT item_description                AS name,
+             SUM(quantity)                   AS qty,
+             SUM(total_amount)                AS revenue
+      FROM sales
+      WHERE date BETWEEN ? AND ?
+      GROUP BY item_description
+      ORDER BY qty DESC
+    ''', [startDate, endDate]);
+
+    return {
+      'totalQuantity':     (totals.first['qty'] as num).toInt(),
+      'totalRevenue':      (totals.first['revenue'] as num).toDouble(),
+      'transactionCount':  (totals.first['transaction_count'] as num).toInt(),
+      'items': byItem.map((r) => {
+            'name':    r['name'] as String,
+            'qty':     (r['qty'] as num).toInt(),
+            'revenue': (r['revenue'] as num).toDouble(),
+          }).toList(),
+    };
+  }
+
+
   // Runs as a single transaction so the payment history row and
   // the sale's updated totals are always written together —
   // never one without the other.
@@ -742,16 +918,142 @@ class DatabaseHelper {
     return await db.delete('inventory_items', where: 'id = ?', whereArgs: [id]);
   }
 
+  // Writes one row to inventory_change_log. Private — every stock
+  // or price change in this file goes through here so the audit
+  // trail can never silently miss an entry.
+  Future<void> _logInventoryChange(
+    Database db, {
+    required int itemId,
+    required String itemName,
+    required String field,
+    required String oldValue,
+    required String newValue,
+    String? reason,
+  }) async {
+    if (oldValue == newValue) return; // Nothing actually changed — don't log a no-op
+    await db.insert('inventory_change_log', {
+      'inventory_item_id': itemId,
+      'item_name':         itemName,
+      'field_changed':     field,
+      'old_value':         oldValue,
+      'new_value':         newValue,
+      'reason':            reason,
+      'changed_at':        DateTime.now().toIso8601String(),
+    });
+  }
+
   // Adjusts stock_quantity by +/- delta (delta is negative for a
   // sale, positive for a restock). Clamped at 0 so stock never goes
-  // negative in the display, even if oversold.
-  Future<void> adjustInventoryStock(int itemId, int delta) async {
+  // negative in the display, even if oversold. Every call is logged
+  // to inventory_change_log — this is the ONE place both the quick
+  // +/- buttons on the Inventory screen AND an automatic sale-time
+  // decrement pass through, so nothing that touches stock ever goes
+  // unlogged.
+  Future<void> adjustInventoryStock(int itemId, int delta, {String reason = 'Manual Adjustment'}) async {
     final db = await database;
     final rows = await db.query('inventory_items', where: 'id = ?', whereArgs: [itemId], limit: 1);
     if (rows.isEmpty) return;
     final current = rows.first['stock_quantity'] as int;
+    final name = rows.first['name'] as String;
     final updated = (current + delta) < 0 ? 0 : current + delta;
     await db.update('inventory_items', {'stock_quantity': updated}, where: 'id = ?', whereArgs: [itemId]);
+    await _logInventoryChange(
+      db,
+      itemId: itemId,
+      itemName: name,
+      field: 'stock_quantity',
+      oldValue: '$current',
+      newValue: '$updated',
+      reason: reason,
+    );
+  }
+
+  // Sets stock to an EXACT new number (e.g. after a physical stock
+  // count) rather than nudging it by a delta. This is the "accept a
+  // new number in stock" action the Inventory screen requires PIN
+  // re-authentication for before calling this.
+  Future<void> setInventoryStock(int itemId, int newQuantity, {String reason = 'Stock Count Correction'}) async {
+    final db = await database;
+    final rows = await db.query('inventory_items', where: 'id = ?', whereArgs: [itemId], limit: 1);
+    if (rows.isEmpty) return;
+    final current = rows.first['stock_quantity'] as int;
+    final name = rows.first['name'] as String;
+    final clamped = newQuantity < 0 ? 0 : newQuantity;
+    await db.update('inventory_items', {'stock_quantity': clamped}, where: 'id = ?', whereArgs: [itemId]);
+    await _logInventoryChange(
+      db,
+      itemId: itemId,
+      itemName: name,
+      field: 'stock_quantity',
+      oldValue: '$current',
+      newValue: '$clamped',
+      reason: reason,
+    );
+  }
+
+  // Edits cost price and/or selling price — e.g. when market prices
+  // change. Sale unit cost price is deliberately NOT editable from
+  // the Sales screen; this is the only path to change it, and every
+  // change lands in inventory_change_log with old/new values.
+  Future<void> updateInventoryPrices(
+    int itemId, {
+    double? costPrice,
+    double? sellingPrice,
+    String reason = 'Price Update',
+  }) async {
+    final db = await database;
+    final rows = await db.query('inventory_items', where: 'id = ?', whereArgs: [itemId], limit: 1);
+    if (rows.isEmpty) return;
+    final row = rows.first;
+    final name = row['name'] as String;
+    final currentCost = (row['cost_price'] as num).toDouble();
+    final currentSelling = (row['selling_price'] as num).toDouble();
+
+    final updates = <String, dynamic>{};
+    if (costPrice != null && costPrice != currentCost) updates['cost_price'] = costPrice;
+    if (sellingPrice != null && sellingPrice != currentSelling) updates['selling_price'] = sellingPrice;
+    if (updates.isEmpty) return;
+
+    await db.update('inventory_items', updates, where: 'id = ?', whereArgs: [itemId]);
+
+    if (updates.containsKey('cost_price')) {
+      await _logInventoryChange(
+        db,
+        itemId: itemId,
+        itemName: name,
+        field: 'cost_price',
+        oldValue: currentCost.toStringAsFixed(2),
+        newValue: costPrice!.toStringAsFixed(2),
+        reason: reason,
+      );
+    }
+    if (updates.containsKey('selling_price')) {
+      await _logInventoryChange(
+        db,
+        itemId: itemId,
+        itemName: name,
+        field: 'selling_price',
+        oldValue: currentSelling.toStringAsFixed(2),
+        newValue: sellingPrice!.toStringAsFixed(2),
+        reason: reason,
+      );
+    }
+  }
+
+  // Full change history, most recent first — optionally scoped to
+  // one item (pass itemId), or across every item (pass null) for
+  // the "All Items" view on the Change Log screen.
+  Future<List<Map<String, dynamic>>> getInventoryChangeLogs({int? itemId}) async {
+    final db = await database;
+    if (itemId != null) {
+      return await db.query(
+        'inventory_change_log',
+        where: 'inventory_item_id = ?',
+        whereArgs: [itemId],
+        orderBy: 'changed_at DESC',
+      );
+    }
+    return await db.query('inventory_change_log', orderBy: 'changed_at DESC');
   }
 
   // Which inventory items have sold the most (by quantity), so the
@@ -955,27 +1257,86 @@ class DatabaseHelper {
   }
 
   // ══════════════════════════════════════════════════════════
+  // ONLINE / CLOUD SYNC
+  // ══════════════════════════════════════════════════════════
+  // These four methods are the ONLY thing SyncService touches
+  // directly on the database — everything else it needs
+  // (exportAllData / restoreFromBackup) already existed for the
+  // local JSON backup feature and is reused as-is.
+
+  // Reads the single sync_meta row. Returns null only if the
+  // database somehow predates version 9 and hasn't upgraded yet.
+  Future<Map<String, dynamic>?> getSyncMeta() async {
+    final db = await database;
+    final rows = await db.query('sync_meta', where: 'id = 1', limit: 1);
+    return rows.isNotEmpty ? rows.first : null;
+  }
+
+  // Called right after a successful push OR pull so this device
+  // knows it's caught up as of `syncedAt` (which SyncService sets
+  // to the value BOTH sides agreed on, not just `DateTime.now()`,
+  // so clock drift between two devices can't cause false conflicts).
+  Future<void> markSynced({required DateTime syncedAt, required String cloudUid}) async {
+    final db = await database;
+    await db.update(
+      'sync_meta',
+      {
+        'last_synced_at': syncedAt.toIso8601String(),
+        'cloud_uid': cloudUid,
+      },
+      where: 'id = 1',
+    );
+  }
+
+  // Used only when restoring a cloud snapshot onto this device —
+  // stamps last_modified_at forward too, so we don't immediately
+  // think we have "new" local changes to push right back up.
+  Future<void> setSyncTimestamps({required DateTime modifiedAt, required DateTime syncedAt}) async {
+    final db = await database;
+    await db.update(
+      'sync_meta',
+      {
+        'last_modified_at': modifiedAt.toIso8601String(),
+        'last_synced_at': syncedAt.toIso8601String(),
+      },
+      where: 'id = 1',
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════
   // BACKUP / RESTORE
   // ══════════════════════════════════════════════════════════
 
-  // Export all data as a Map (later converted to JSON)
+  // Export all data as a Map (later converted to JSON).
+  // Used by BOTH the local "Export Backup" file feature and
+  // SyncService when pushing a snapshot to the cloud.
   Future<Map<String, dynamic>> exportAllData() async {
     final db = await database;
     // Fetch every row from every table
-    final profile      = await db.query('business_profile');
-    final income       = await db.query('income');
-    final expenses     = await db.query('expenses');
-    final sales        = await db.query('sales');
-    final salePayments = await db.query('sale_payments');
-    final settings     = await db.query('settings');
+    final profile            = await db.query('business_profile');
+    final income             = await db.query('income');
+    final expenses           = await db.query('expenses');
+    final expensePayments    = await db.query('expense_payments');
+    final sales              = await db.query('sales');
+    final salePayments       = await db.query('sale_payments');
+    final recurringTemplates = await db.query('recurring_expense_templates');
+    final inventoryItems     = await db.query('inventory_items');
+    final customers          = await db.query('customers');
+    final inventoryChangeLog = await db.query('inventory_change_log');
+    final settings           = await db.query('settings');
 
     // Return as a nested map — easy to convert to JSON
     return {
       'business_profile': profile,
       'income': income,
       'expenses': expenses,
+      'expense_payments': expensePayments,
       'sales': sales,
       'sale_payments': salePayments,
+      'recurring_expense_templates': recurringTemplates,
+      'inventory_items': inventoryItems,
+      'customers': customers,
+      'inventory_change_log': inventoryChangeLog,
       'settings': settings,
       'exported_at': DateTime.now().toIso8601String(),
       'app_version': '1.1.0',
@@ -989,28 +1350,48 @@ class DatabaseHelper {
     // Use a transaction so either ALL data is restored
     // or NONE of it is (prevents partial/corrupt state)
     await db.transaction((txn) async {
-      // Wipe all existing data
+      // Wipe all existing data — children before parents, so
+      // foreign key references never dangle mid-transaction
+      await txn.delete('expense_payments');
       await txn.delete('sale_payments');
       await txn.delete('sales');
       await txn.delete('income');
       await txn.delete('expenses');
+      await txn.delete('recurring_expense_templates');
+      await txn.delete('inventory_items');
+      await txn.delete('customers');
+      await txn.delete('inventory_change_log');
       await txn.delete('business_profile');
       await txn.delete('settings');
 
-      // Re-insert from backup
-      final List profile      = data['business_profile'] ?? [];
-      final List income       = data['income'] ?? [];
-      final List expenses     = data['expenses'] ?? [];
-      final List sales        = data['sales'] ?? [];
-      final List salePayments = data['sale_payments'] ?? [];
-      final List settings     = data['settings'] ?? [];
+      // Re-insert from backup. `?? []` means older backup files
+      // (or cloud snapshots from before a table existed) restore
+      // fine — the newer table just comes back empty.
+      final List profile            = data['business_profile'] ?? [];
+      final List income              = data['income'] ?? [];
+      final List expenses            = data['expenses'] ?? [];
+      final List expensePayments      = data['expense_payments'] ?? [];
+      final List sales                = data['sales'] ?? [];
+      final List salePayments         = data['sale_payments'] ?? [];
+      final List recurringTemplates   = data['recurring_expense_templates'] ?? [];
+      final List inventoryItems       = data['inventory_items'] ?? [];
+      final List customers            = data['customers'] ?? [];
+      final List inventoryChangeLog   = data['inventory_change_log'] ?? [];
+      final List settings             = data['settings'] ?? [];
 
-      for (var row in profile)      await txn.insert('business_profile', Map<String, dynamic>.from(row));
-      for (var row in income)       await txn.insert('income',           Map<String, dynamic>.from(row));
-      for (var row in expenses)     await txn.insert('expenses',         Map<String, dynamic>.from(row));
-      for (var row in sales)        await txn.insert('sales',            Map<String, dynamic>.from(row));
-      for (var row in salePayments) await txn.insert('sale_payments',    Map<String, dynamic>.from(row));
-      for (var row in settings)     await txn.insert('settings',         Map<String, dynamic>.from(row));
+      // Parents first, then anything that can reference them, so
+      // this stays safe even if FK enforcement is ever turned on.
+      for (var row in profile)            await txn.insert('business_profile', Map<String, dynamic>.from(row));
+      for (var row in settings)           await txn.insert('settings', Map<String, dynamic>.from(row));
+      for (var row in customers)          await txn.insert('customers', Map<String, dynamic>.from(row));
+      for (var row in inventoryItems)     await txn.insert('inventory_items', Map<String, dynamic>.from(row));
+      for (var row in recurringTemplates) await txn.insert('recurring_expense_templates', Map<String, dynamic>.from(row));
+      for (var row in income)             await txn.insert('income', Map<String, dynamic>.from(row));
+      for (var row in expenses)           await txn.insert('expenses', Map<String, dynamic>.from(row));
+      for (var row in sales)              await txn.insert('sales', Map<String, dynamic>.from(row));
+      for (var row in expensePayments)    await txn.insert('expense_payments', Map<String, dynamic>.from(row));
+      for (var row in salePayments)       await txn.insert('sale_payments', Map<String, dynamic>.from(row));
+      for (var row in inventoryChangeLog) await txn.insert('inventory_change_log', Map<String, dynamic>.from(row));
     });
   }
 
@@ -1031,6 +1412,7 @@ class DatabaseHelper {
       await txn.delete('recurring_expense_templates');
       await txn.delete('inventory_items');
       await txn.delete('customers');
+      await txn.delete('inventory_change_log');
       await txn.delete('settings');
     });
   }

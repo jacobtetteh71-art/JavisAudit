@@ -9,8 +9,7 @@ build/
 # NOTE: pubspec.lock is intentionally NOT ignored for this app.
 # Committing it pins every dependency (including transitive ones like
 # share_plus) to an exact tested version, so CI can't silently resolve
-# a newer major version with incompatible native Android requirements
-# the way it did when this workflow last failed.
+# a newer major version with incompatible native Android requirements.
 
 # Android
 android/.gradle/
@@ -21,6 +20,14 @@ android/local.properties
 android/**/GeneratedPluginRegistrant.java
 *.jks
 key.properties
+
+# Cloud Sync (Firebase) — add your OWN real google-services.json
+# locally after running `flutterfire configure` (see SYNC_SETUP.md).
+# Never commit a placeholder/fake one — the Gradle plugin that reads
+# this file crashes on invalid data with confusing, unrelated-looking
+# errors. (lib/firebase_options.dart is NOT ignored — Dart needs that
+# file to exist to compile at all, even as a placeholder.)
+android/app/google-services.json
 
 # IDE
 .idea/

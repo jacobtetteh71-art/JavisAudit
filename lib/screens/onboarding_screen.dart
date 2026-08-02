@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import '../utils/page_transitions.dart';
 import 'set_pin_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -92,7 +93,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       // securing it first. SetPinScreen itself moves on to the
       // Dashboard once the PIN/password are saved.
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const SetPinScreen()),
+        slideFromRight(const SetPinScreen()),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
