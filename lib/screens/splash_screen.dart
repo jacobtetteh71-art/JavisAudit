@@ -12,7 +12,6 @@ import 'package:provider/provider.dart';
 
 import '../providers/providers.dart';
 import '../utils/utils.dart';
-import '../utils/page_transitions.dart';
 import 'lock_screen.dart';
 import 'set_pin_screen.dart';
 import 'welcome_screen.dart';
@@ -84,30 +83,19 @@ class _SplashScreenState extends State<SplashScreen>
     //   • Profile exists, PIN already set  → Lock Screen (normal case,
     //                                         every time the app opens)
     late final Widget nextScreen;
-    late final bool isSignInFlow;
     if (!hasProfile) {
       nextScreen = const WelcomeScreen();
-      isSignInFlow = false; // Neither direction applies yet — this is the choice screen itself
     } else if (!hasCredentials) {
       nextScreen = const SetPinScreen();
-      isSignInFlow = false; // Finishing setup — reads the same as "signing up"
     } else {
       nextScreen = const LockScreen();
-      isSignInFlow = true; // The everyday "sign in" path
     }
 
     // pushReplacement replaces the splash in the navigation stack
-    // so the back button doesn't return to the splash screen.
-    // Sliding FROM the left = "signing in" (an existing account);
-    // the plain default (no custom slide) covers the neutral
-    // first-launch choice screen.
-    if (isSignInFlow) {
-      Navigator.of(context).pushReplacement(slideFromLeft(nextScreen));
-    } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => nextScreen),
-      );
-    }
+    // so the back button doesn't return to the splash screen
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => nextScreen),
+    );
   }
 
   @override

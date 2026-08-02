@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:firebase_core/firebase_core.dart';
 
 // Our own files — explained in each file's header comment
 import 'database/database_helper.dart';
@@ -20,8 +19,6 @@ import 'providers/sales_provider.dart';
 import 'providers/vat_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/auth_provider.dart';
-import 'providers/sync_provider.dart';
-import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 
 // ── Global notification plugin instance ─────────────────────
@@ -49,18 +46,6 @@ Future<void> main() async {
   // Open the 'settings' box — this is like a small dictionary
   // that persists between app launches
   await Hive.openBox('settings');
-
-  // ── Step 1b: Initialise Firebase (Cloud Sync) ───────────
-  // Wrapped in try/catch on purpose: JavisAudit is offline-first,
-  // so a business owner with no internet on first launch (or one
-  // who hasn't run `flutterfire configure` yet during development)
-  // must still be able to use every other part of the app. Cloud
-  // Sync simply stays unavailable — signing in later will retry.
-  try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  } catch (e) {
-    debugPrint('Firebase init skipped (Cloud Sync unavailable): $e');
-  }
 
   // ── Step 2: Initialise the SQLite database ──────────────
   // This call creates the javisaudit.db file and all five
@@ -121,10 +106,6 @@ Future<void> main() async {
         // AuthProvider: manages the login PIN/password and the
         // current session's locked/unlocked state
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-
-        // SyncProvider: Cloud Sync account state + sync status,
-        // see providers/sync_provider.dart
-        ChangeNotifierProvider(create: (_) => SyncProvider()),
       ],
       child: const MyApp(),
     ),

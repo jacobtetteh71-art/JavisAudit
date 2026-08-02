@@ -227,12 +227,6 @@ class Sale {
   final String? notes;
   final int? incomeId;            // FK to income table (set when status = 'Paid')
   final int? inventoryItemId;     // Optional FK to inventory_items
-  // Ties several Sale rows together as ONE customer transaction
-  // when more than one item was sold in a single "Record Sale" —
-  // see sales_screen.dart's multi-item line entry. Null for
-  // ordinary single-item sales (including everything recorded
-  // before this feature existed).
-  final String? saleGroupId;
   // ── Optional cheque details (only meaningful when paymentMethod == 'Cheque') ──
   final String? chequeAccountNumber;
   final String? chequeAccountName;
@@ -255,7 +249,6 @@ class Sale {
     this.notes,
     this.incomeId,
     this.inventoryItemId,
-    this.saleGroupId,
     this.chequeAccountNumber,
     this.chequeAccountName,
     this.chequeNumber,
@@ -291,7 +284,6 @@ class Sale {
       notes:           map['notes'] as String?,
       incomeId:        map['income_id'] as int?,
       inventoryItemId: map['inventory_item_id'] as int?,
-      saleGroupId:     map['sale_group_id'] as String?,
       chequeAccountNumber: map['cheque_account_number'] as String?,
       chequeAccountName:   map['cheque_account_name'] as String?,
       chequeNumber:        map['cheque_number'] as String?,
@@ -315,7 +307,6 @@ class Sale {
       'notes':            notes,
       'income_id':        incomeId,
       'inventory_item_id': inventoryItemId,
-      'sale_group_id':    saleGroupId,
       'cheque_account_number': chequeAccountNumber,
       'cheque_account_name':   chequeAccountName,
       'cheque_number':         chequeNumber,
@@ -678,76 +669,4 @@ class BusinessProfile {
     'Construction',
     'Other',
   ];
-}
-
-// ============================================================
-// models/inventory_change_log_model.dart  –  Stock & Price Audit Trail
-// ============================================================
-// One row every time an inventory item's stock quantity, cost
-// price, or selling price changes — who changed what, from what
-// to what, and when. Powers the "Change Log" view on the
-// Inventory screen so nothing moves silently.
-// ============================================================
-
-class InventoryChangeLog {
-  final int? id;
-  final int inventoryItemId;
-  final String itemName;      // Snapshot of the name at the time of change,
-                               // so the log still reads clearly even if the
-                               // item is later renamed or deleted.
-  final String fieldChanged;  // 'stock_quantity' | 'cost_price' | 'selling_price'
-  final String oldValue;
-  final String newValue;
-  final String? reason;       // e.g. 'Restock', 'Stock Count Correction', 'Sale', 'Price Update'
-  final String changedAt;     // ISO 8601 timestamp
-
-  const InventoryChangeLog({
-    this.id,
-    required this.inventoryItemId,
-    required this.itemName,
-    required this.fieldChanged,
-    required this.oldValue,
-    required this.newValue,
-    this.reason,
-    required this.changedAt,
-  });
-
-  // Human-friendly label for the field that changed
-  String get fieldLabel {
-    switch (fieldChanged) {
-      case 'stock_quantity':
-        return 'Stock Quantity';
-      case 'cost_price':
-        return 'Cost Price';
-      case 'selling_price':
-        return 'Selling Price';
-      default:
-        return fieldChanged;
-    }
-  }
-
-  factory InventoryChangeLog.fromMap(Map<String, dynamic> map) {
-    return InventoryChangeLog(
-      id:              map['id'] as int?,
-      inventoryItemId: map['inventory_item_id'] as int,
-      itemName:        map['item_name'] as String,
-      fieldChanged:    map['field_changed'] as String,
-      oldValue:        map['old_value'] as String,
-      newValue:        map['new_value'] as String,
-      reason:          map['reason'] as String?,
-      changedAt:       map['changed_at'] as String,
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'inventory_item_id': inventoryItemId,
-      'item_name':         itemName,
-      'field_changed':     fieldChanged,
-      'old_value':         oldValue,
-      'new_value':         newValue,
-      'reason':            reason,
-      'changed_at':        changedAt,
-    };
-  }
 }

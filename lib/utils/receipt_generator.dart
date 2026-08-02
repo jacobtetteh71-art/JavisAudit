@@ -13,7 +13,6 @@ import 'package:printing/printing.dart';
 
 import '../models/models.dart';
 import 'utils.dart';
-import 'document_generator.dart';
 
 Future<void> shareSaleReceipt({
   required BusinessProfile? profile,
@@ -25,12 +24,18 @@ Future<void> shareSaleReceipt({
     pw.Page(
       pageFormat: PdfPageFormat.a5,
       margin: const pw.EdgeInsets.all(28),
-      footer: (context) => buildFooter(profile, context),
       build: (context) {
         return pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            buildLetterhead(profile, 'Sales Receipt'),
+            pw.Text(profile?.businessName ?? 'JavisAudit',
+                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            if (profile?.location != null && profile!.location!.isNotEmpty)
+              pw.Text(profile.location!, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            pw.Text('SALES RECEIPT', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+            pw.Divider(thickness: 1),
+            pw.SizedBox(height: 8),
 
             _row('Date', AppFormat.displayDate(sale.date)),
             if (sale.customerName != null && sale.customerName!.trim().isNotEmpty)
@@ -95,6 +100,8 @@ Future<void> shareSaleReceipt({
             pw.SizedBox(height: 20),
             pw.Text('Thank you for your business!',
                 style: pw.TextStyle(fontSize: 11, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            pw.Text('Generated via JavisAudit', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
           ],
         );
       },
@@ -104,111 +111,6 @@ Future<void> shareSaleReceipt({
   await Printing.sharePdf(
     bytes: await pdf.save(),
     filename: 'Receipt_${sale.id ?? DateTime.now().millisecondsSinceEpoch}.pdf',
-  );
-}
-
-// ── shareGroupedSaleReceipt: one combined receipt for a multi-item
-// sale — several Sale rows recorded together under one saleGroupId
-// (see sales_screen.dart's line-item entry). Lists every item sold
-// in the transaction with one grand total, instead of printing a
-// separate receipt per line.
-Future<void> shareGroupedSaleReceipt({
-  required BusinessProfile? profile,
-  required List<Sale> sales,
-}) async {
-  if (sales.isEmpty) return;
-  final first = sales.first;
-  final grandTotal = sales.fold<double>(0, (s, sale) => s + sale.totalAmount);
-  final totalPaid = sales.fold<double>(0, (s, sale) => s + sale.amountPaid);
-  final balance = (grandTotal - totalPaid) < 0 ? 0.0 : grandTotal - totalPaid;
-  // A transaction reads as "Paid" only if every line in it is —
-  // otherwise there's still a balance owed somewhere in the group.
-  final overallStatus = sales.every((s) => s.paymentStatus == 'Paid')
-      ? 'Paid'
-      : (totalPaid > 0 ? 'Partial Payment' : 'Pending');
-
-  final pdf = pw.Document();
-
-  pdf.addPage(
-    pw.Page(
-      pageFormat: PdfPageFormat.a5,
-      margin: const pw.EdgeInsets.all(28),
-      footer: (context) => buildFooter(profile, context),
-      build: (context) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            buildLetterhead(profile, 'Sales Receipt'),
-
-            _row('Date', AppFormat.displayDate(first.date)),
-            if (first.customerName != null && first.customerName!.trim().isNotEmpty)
-              _row('Customer', first.customerName!),
-            _row('Receipt No.', 'JA-${first.id.toString().padLeft(5, '0')}'),
-            pw.SizedBox(height: 10),
-
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(3),
-                1: pw.FlexColumnWidth(1),
-                2: pw.FlexColumnWidth(1.5),
-                3: pw.FlexColumnWidth(1.5),
-              },
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-                  children: [
-                    _cell('Item', isHeader: true),
-                    _cell('Qty', isHeader: true),
-                    _cell('Unit Price', isHeader: true),
-                    _cell('Total', isHeader: true),
-                  ],
-                ),
-                ...sales.map((sale) => pw.TableRow(children: [
-                      _cell(sale.itemDescription),
-                      _cell('${sale.quantity}'),
-                      _cell(AppFormat.pdfCurrency(sale.unitPrice)),
-                      _cell(AppFormat.pdfCurrency(sale.totalAmount)),
-                    ])),
-              ],
-            ),
-            pw.SizedBox(height: 12),
-
-            _row('Payment Method', first.paymentMethod),
-            _row('Payment Status', overallStatus),
-            if (overallStatus != 'Paid') ...[
-              _row('Amount Paid', AppFormat.pdfCurrency(totalPaid)),
-              _row('Balance Due', AppFormat.pdfCurrency(balance)),
-            ],
-
-            pw.SizedBox(height: 16),
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(vertical: 8),
-              decoration: const pw.BoxDecoration(
-                border: pw.Border(top: pw.BorderSide(width: 1, color: PdfColors.black)),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('GRAND TOTAL', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-                  pw.Text(AppFormat.pdfCurrency(grandTotal),
-                      style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-                ],
-              ),
-            ),
-
-            pw.SizedBox(height: 20),
-            pw.Text('Thank you for your business!',
-                style: pw.TextStyle(fontSize: 11, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
-          ],
-        );
-      },
-    ),
-  );
-
-  await Printing.sharePdf(
-    bytes: await pdf.save(),
-    filename: 'Receipt_${first.saleGroupId ?? first.id ?? DateTime.now().millisecondsSinceEpoch}.pdf',
   );
 }
 

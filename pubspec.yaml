@@ -53,10 +53,7 @@ dependencies:
   path_provider: ^2.1.3
 
   # share_plus: opens the Android share sheet so users can share PDF/backup via WhatsApp, email, etc.
-  # (was ^9.0.0 — that version's own Android build files predate the
-  # project's Gradle setup and crash it with a misleading
-  # "compileSdkVersion is not specified" error; 12.x fixed this)
-  share_plus: ^12.0.1
+  share_plus: ^9.0.0
 
   # ── Utilities ───────────────────────────────────────────────────────────────
   # intl: formats dates (e.g., "15 Jun 2026") and numbers (e.g., "GH₵ 1,250.00")
@@ -75,25 +72,6 @@ dependencies:
 
   # cupertino_icons: provides the default iOS-style icons (used by Flutter)
   cupertino_icons: ^1.0.8
-
-  # ── Online / Cloud Sync ──────────────────────────────────────────────────
-  # firebase_core: boots the connection to our Firebase project — every
-  # other Firebase plugin needs this initialised first (see main.dart)
-  firebase_core: ^3.6.0
-
-  # firebase_auth: lets a business owner sign in with email + password so
-  # their data can be tied to THEM (not just one phone) and pulled down
-  # again on a new/replacement device
-  firebase_auth: ^5.3.1
-
-  # cloud_firestore: the actual cloud database we sync the local SQLite
-  # data to/from — see lib/services/sync_service.dart
-  cloud_firestore: ^5.4.4
-
-  # connectivity_plus: lets us check for an internet connection before
-  # attempting a sync, so JavisAudit never hangs or errors out while the
-  # owner is offline in the market — sync simply waits for a connection
-  connectivity_plus: ^6.0.5
 
 dev_dependencies:
   flutter_test:

@@ -10,7 +10,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 
 import '../database/database_helper.dart';
 import '../models/models.dart';
@@ -18,7 +17,6 @@ import '../providers/providers.dart';
 import '../utils/utils.dart';
 import '../utils/receipt_generator.dart';
 import '../widgets/cheque_details_fields.dart';
-import 'sales_performance_screen.dart';
 import 'verify_identity_sheet.dart';
 
 class SalesScreen extends StatefulWidget {
@@ -47,31 +45,11 @@ class _SalesScreenState extends State<SalesScreen> {
     );
   }
 
-  // Groups a flat sales list into transactions — several Sale rows
-  // sharing a saleGroupId (a multi-item sale) collapse into one
-  // list entry; everything else (the vast majority, including
-  // every sale recorded before this feature existed) stays as its
-  // own single-item entry.
-  List<List<Sale>> _groupSales(List<Sale> sales) {
-    final Map<String, List<Sale>> groups = {};
-    final List<String> order = [];
-    for (final s in sales) {
-      final key = s.saleGroupId ?? 'single-${s.id}';
-      if (!groups.containsKey(key)) {
-        groups[key] = [];
-        order.add(key);
-      }
-      groups[key]!.add(s);
-    }
-    return order.map((k) => groups[k]!).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<SalesProvider>();
     final sales = provider.sales;
     final totalSales = sales.fold<double>(0, (sum, s) => sum + s.totalAmount);
-    final groupedSales = _groupSales(sales);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -82,16 +60,6 @@ class _SalesScreenState extends State<SalesScreen> {
           onPressed: widget.onMenuTap,
         ),
         title: const Text('Sales'),
-        actions: [
-          IconButton(
-            tooltip: 'Sales Performance',
-            icon: const Icon(Icons.insert_chart_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SalesPerformanceScreen()),
-            ),
-          ),
-        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddSaleSheet,
@@ -131,13 +99,8 @@ class _SalesScreenState extends State<SalesScreen> {
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
-                          itemCount: groupedSales.length,
-                          itemBuilder: (_, index) {
-                            final group = groupedSales[index];
-                            return group.length > 1
-                                ? _SaleGroupTile(sales: group)
-                                : _SaleListTile(sale: group.first);
-                          },
+                          itemCount: sales.length,
+                          itemBuilder: (_, index) => _SaleListTile(sale: sales[index]),
                         ),
                 ),
               ],
@@ -274,255 +237,15 @@ class _AddSaleSheet extends StatefulWidget {
   State<_AddSaleSheet> createState() => _AddSaleSheetState();
 }
 
-// ============================================================
-// _SaleGroupTile / _SaleGroupDetailSheet  –  Multi-item sale
-// ============================================================
-// Several Sale rows recorded together under one saleGroupId show
-// up as ONE card in the list — tapping it drills into every line
-// item, each of which still opens the ordinary _SaleDetailSheet
-// (record payment, delete, single-item receipt all work exactly
-// as before) so there's no separate logic to keep in sync.
-// ============================================================
-class _SaleGroupTile extends StatelessWidget {
-  final List<Sale> sales;
-  const _SaleGroupTile({required this.sales});
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'Paid':
-        return AppColors.income;
-      case 'Pending':
-        return AppColors.expense;
-      default:
-        return AppColors.warning;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final first = sales.first;
-    final grandTotal = sales.fold<double>(0, (s, sale) => s + sale.totalAmount);
-    final overallStatus = sales.every((s) => s.paymentStatus == 'Paid')
-        ? 'Paid'
-        : (sales.any((s) => s.paymentStatus == 'Partial Payment' || s.amountPaid > 0) ? 'Partial Payment' : 'Pending');
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _SaleGroupDetailSheet(sales: sales),
-      ),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.gold.withOpacity(0.4)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.receipt_long, size: 16, color: AppColors.gold),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text('${sales.length} items sold',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _statusColor(overallStatus).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(overallStatus,
-                      style: TextStyle(fontSize: 10, color: _statusColor(overallStatus), fontWeight: FontWeight.w700)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            if (first.customerName != null && first.customerName!.isNotEmpty)
-              Text('Customer: ${first.customerName}',
-                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
-            Text(
-              sales.map((s) => s.itemDescription).join(', '),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-            ),
-            Text(AppFormat.displayDate(first.date), style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(AppFormat.currency(grandTotal),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.gold)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SaleGroupDetailSheet extends StatefulWidget {
-  final List<Sale> sales;
-  const _SaleGroupDetailSheet({required this.sales});
-
-  @override
-  State<_SaleGroupDetailSheet> createState() => _SaleGroupDetailSheetState();
-}
-
-class _SaleGroupDetailSheetState extends State<_SaleGroupDetailSheet> {
-  bool _isSharingReceipt = false;
-
-  Future<void> _shareCombinedReceipt() async {
-    setState(() => _isSharingReceipt = true);
-    try {
-      final profile = context.read<ProfileProvider>().profile;
-      await shareGroupedSaleReceipt(profile: profile, sales: widget.sales);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not generate receipt: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSharingReceipt = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sales = widget.sales;
-    final first = sales.first;
-    final grandTotal = sales.fold<double>(0, (s, sale) => s + sale.totalAmount);
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      minChildSize: 0.4,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (_, scrollController) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.all(20),
-          children: [
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text('${sales.length}-Item Sale', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            if (first.customerName != null && first.customerName!.isNotEmpty)
-              Text('Customer: ${first.customerName}', style: const TextStyle(fontSize: 13, color: AppColors.textMuted)),
-            Text(AppFormat.displayDate(first.date), style: const TextStyle(fontSize: 13, color: AppColors.textMuted)),
-            const SizedBox(height: 16),
-            const Text('Tap an item to view, pay, or delete it individually.',
-                style: TextStyle(fontSize: 11, color: AppColors.textMuted, fontStyle: FontStyle.italic)),
-            const SizedBox(height: 8),
-            ...sales.map((sale) => InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (_) => _SaleDetailSheet(sale: sale),
-                  ),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(sale.itemDescription, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                              Text('${sale.quantity} × ${AppFormat.currency(sale.unitPrice)}',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                            ],
-                          ),
-                        ),
-                        Text(AppFormat.currency(sale.totalAmount),
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.gold)),
-                        const Icon(Icons.chevron_right, size: 18, color: AppColors.textMuted),
-                      ],
-                    ),
-                  ),
-                )),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-              decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Grand Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  Text(AppFormat.currency(grandTotal),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.gold)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _isSharingReceipt ? null : _shareCombinedReceipt,
-                icon: _isSharingReceipt
-                    ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.receipt_long_outlined, size: 18),
-                label: Text(_isSharingReceipt ? 'Preparing…' : 'Share Combined Receipt'),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// One row of "what was sold" — a sale can now have several of
-// these under one customer/date/payment (feature: multiple items
-// in one sale). Each line keeps its own controllers and its own
-// linked inventory item (if any).
-class _SaleLineItemControllers {
-  final itemCtrl = TextEditingController();
-  final quantityCtrl = TextEditingController(text: '1');
-  final unitPriceCtrl = TextEditingController();
-  final costPriceCtrl = TextEditingController();
-  InventoryItem? selectedInventoryItem;
-
-  double get total => (int.tryParse(quantityCtrl.text) ?? 0) * (double.tryParse(unitPriceCtrl.text) ?? 0);
-  double get profit => total - (int.tryParse(quantityCtrl.text) ?? 0) * (double.tryParse(costPriceCtrl.text) ?? 0);
-
-  void dispose() {
-    itemCtrl.dispose();
-    quantityCtrl.dispose();
-    unitPriceCtrl.dispose();
-    costPriceCtrl.dispose();
-  }
-}
-
 class _AddSaleSheetState extends State<_AddSaleSheet> {
   final _formKey = GlobalKey<FormState>();
   final _customerCtrl = TextEditingController();
+  final _itemCtrl = TextEditingController();
+  final _quantityCtrl = TextEditingController(text: '1');
+  final _unitPriceCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _amountPaidCtrl = TextEditingController(); // Only shown for Partial Payment
-
-  // One or more items being sold in this single transaction.
-  final List<_SaleLineItemControllers> _lines = [_SaleLineItemControllers()];
+  final _costPriceCtrl = TextEditingController(); // Optional — powers gross profit
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedPaymentMethod;
@@ -530,14 +253,9 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   bool _isSaving = false;
   final _chequeDetails = ChequeDetailsController();
   List<InventoryItem> _inventoryItems = [];
+  InventoryItem? _selectedInventoryItem;
   List<String> _customerNames = [];
   bool _autocompleteListenerAdded = false;
-
-  // How far back a sale can be dated without special handling.
-  // Anything older than this is rejected outright; anything from
-  // yesterday up to this limit still requires re-authentication
-  // (see _pickDate).
-  static const int _maxBackdateDays = 3;
 
   Future<void> _loadInventoryItems() async {
     final rows = await DatabaseHelper.instance.getInventoryItems();
@@ -556,35 +274,27 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
     setState(() => _customerNames = names.toList()..sort());
   }
 
-  // The live-calculated grand total across every line item
-  double get _computedTotal => _lines.fold<double>(0, (s, l) => s + l.total);
-  double get _computedProfit => _lines.fold<double>(0, (s, l) => s + l.profit);
-
-  void _addLine() {
-    final line = _SaleLineItemControllers();
-    line.itemCtrl.addListener(() => setState(() {}));
-    line.quantityCtrl.addListener(() => setState(() {}));
-    line.unitPriceCtrl.addListener(() => setState(() {}));
-    line.costPriceCtrl.addListener(() => setState(() {}));
-    setState(() => _lines.add(line));
+  // The live-calculated total — recomputed on every keystroke
+  double get _computedTotal {
+    final qty = int.tryParse(_quantityCtrl.text) ?? 0;
+    final price = double.tryParse(_unitPriceCtrl.text) ?? 0;
+    return qty * price;
   }
 
-  void _removeLine(int index) {
-    setState(() {
-      _lines[index].dispose();
-      _lines.removeAt(index);
-    });
+  // Live-calculated gross profit for this sale (0 if no cost entered)
+  double get _computedProfit {
+    final qty = int.tryParse(_quantityCtrl.text) ?? 0;
+    final cost = double.tryParse(_costPriceCtrl.text) ?? 0;
+    return _computedTotal - (qty * cost);
   }
 
   @override
   void initState() {
     super.initState();
-    // Listen to changes on the first (default) line so the total
-    // updates live — _addLine() wires up listeners for any more.
-    _lines.first.itemCtrl.addListener(() => setState(() {}));
-    _lines.first.quantityCtrl.addListener(() => setState(() {}));
-    _lines.first.unitPriceCtrl.addListener(() => setState(() {}));
-    _lines.first.costPriceCtrl.addListener(() => setState(() {}));
+    // Listen to changes in quantity/price so the total updates live
+    _quantityCtrl.addListener(() => setState(() {}));
+    _unitPriceCtrl.addListener(() => setState(() {}));
+    _costPriceCtrl.addListener(() => setState(() {}));
     _loadInventoryItems();
     _loadCustomerNames();
   }
@@ -592,36 +302,24 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   @override
   void dispose() {
     _customerCtrl.dispose();
+    _itemCtrl.dispose();
+    _quantityCtrl.dispose();
+    _unitPriceCtrl.dispose();
     _notesCtrl.dispose();
     _amountPaidCtrl.dispose();
-    for (final line in _lines) {
-      line.dispose();
-    }
+    _costPriceCtrl.dispose();
     _chequeDetails.dispose();
     super.dispose();
   }
 
   Future<void> _pickDate() async {
-    final earliestAllowed = DateTime.now().subtract(const Duration(days: _maxBackdateDays));
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
-      // Sales cannot be backdated more than _maxBackdateDays days —
-      // the date picker itself won't offer anything earlier.
-      firstDate: earliestAllowed,
+      firstDate: DateTime(2020),
       lastDate: DateTime.now(),
     );
-    if (picked == null) return;
-
-    final isToday = AppFormat.dateToString(picked) == AppFormat.dateToString(DateTime.now());
-    if (!isToday) {
-      // Backdating at all — even by a day — requires re-authentication.
-      if (!mounted) return;
-      final verified = await verifyIdentity(context, reason: 'record a sale for a past date');
-      if (!verified) return; // Leave the date exactly as it was
-    }
-
-    setState(() => _selectedDate = picked);
+    if (picked != null) setState(() => _selectedDate = picked);
   }
 
   Future<void> _submit() async {
@@ -630,12 +328,6 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
       _showError('Please select a payment method.');
       return;
     }
-    if (_lines.any((l) => l.itemCtrl.text.trim().length < 2)) {
-      _showError('Enter the item or service sold for every line.');
-      return;
-    }
-
-    final grandTotal = _computedTotal;
 
     // For a Partial Payment, an initial amount paid so far is required
     double startingAmountPaid = 0;
@@ -645,7 +337,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
         _showError('Enter how much has been paid so far.');
         return;
       }
-      if (entered >= grandTotal) {
+      if (entered >= _computedTotal) {
         _showError('That covers the full amount — please choose "Paid" instead.');
         return;
       }
@@ -654,247 +346,60 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
 
     setState(() => _isSaving = true);
 
-    // Several items sold together share one saleGroupId, so the
-    // Sales list and receipt can present them as one transaction.
-    // A single-item sale (the common case) stays untagged, exactly
-    // as every sale before this feature existed.
-    final saleGroupId = _lines.length > 1 ? const Uuid().v4() : null;
+    final sale = Sale(
+      date:             AppFormat.dateToString(_selectedDate),
+      customerName:     _customerCtrl.text.trim().isEmpty ? null : _customerCtrl.text.trim(),
+      itemDescription:  _itemCtrl.text.trim(),
+      quantity:         int.parse(_quantityCtrl.text.trim()),
+      unitPrice:        double.parse(_unitPriceCtrl.text.trim()),
+      totalAmount:      _computedTotal,
+      costPrice:        double.tryParse(_costPriceCtrl.text.trim()) ?? 0,
+      paymentMethod:    _selectedPaymentMethod!,
+      paymentStatus:    _selectedStatus,
+      amountPaid:       startingAmountPaid,
+      notes:            _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      inventoryItemId:  _selectedInventoryItem?.id,
+      chequeAccountNumber: _chequeDetails.toMap()['cheque_account_number'],
+      chequeAccountName:   _chequeDetails.toMap()['cheque_account_name'],
+      chequeNumber:        _chequeDetails.toMap()['cheque_number'],
+      chequeImagePath:     _chequeDetails.imagePath,
+      createdAt:        DateTime.now().toIso8601String(),
+    );
 
-    bool allSucceeded = true;
-    double amountAllocated = 0;
-    final savedSales = <Sale>[];
+    // SalesProvider.addSale() automatically creates a matching
+    // income entry if paymentStatus == 'Paid' — see providers.dart
+    final success = await context.read<SalesProvider>().addSale(sale);
 
-    for (var i = 0; i < _lines.length; i++) {
-      final line = _lines[i];
-      final lineTotal = line.total;
-
-      // Distribute a Partial Payment across lines proportionally
-      // by each line's share of the grand total. The LAST line
-      // absorbs any rounding remainder so the sum matches exactly.
-      double lineAmountPaid;
-      if (_selectedStatus == 'Paid') {
-        lineAmountPaid = lineTotal; // resolved by SalesProvider.addSale
-      } else if (_selectedStatus == 'Partial Payment') {
-        lineAmountPaid = (i == _lines.length - 1)
-            ? (startingAmountPaid - amountAllocated)
-            : (grandTotal == 0 ? 0 : startingAmountPaid * (lineTotal / grandTotal));
-        amountAllocated += lineAmountPaid;
-      } else {
-        lineAmountPaid = 0;
-      }
-
-      final sale = Sale(
-        date:             AppFormat.dateToString(_selectedDate),
-        customerName:     _customerCtrl.text.trim().isEmpty ? null : _customerCtrl.text.trim(),
-        itemDescription:  line.itemCtrl.text.trim(),
-        quantity:         int.parse(line.quantityCtrl.text.trim()),
-        unitPrice:        double.parse(line.unitPriceCtrl.text.trim()),
-        totalAmount:      lineTotal,
-        costPrice:        double.tryParse(line.costPriceCtrl.text.trim()) ?? 0,
-        paymentMethod:    _selectedPaymentMethod!,
-        paymentStatus:    _selectedStatus,
-        amountPaid:       lineAmountPaid,
-        notes:            _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        inventoryItemId:  line.selectedInventoryItem?.id,
-        saleGroupId:      saleGroupId,
-        chequeAccountNumber: _chequeDetails.toMap()['cheque_account_number'],
-        chequeAccountName:   _chequeDetails.toMap()['cheque_account_name'],
-        chequeNumber:        _chequeDetails.toMap()['cheque_number'],
-        chequeImagePath:     _chequeDetails.imagePath,
-        createdAt:        DateTime.now().toIso8601String(),
-      );
-
-      // SalesProvider.addSale() automatically creates a matching
-      // income entry if paymentStatus == 'Paid' — see providers.dart
-      final success = await context.read<SalesProvider>().addSale(sale);
-      if (!success) {
-        allSucceeded = false;
-        continue;
-      }
-      savedSales.add(sale);
-
-      // If this line was linked to an inventory item, reduce stock
-      // by the quantity sold — logged automatically as a 'Sale'.
-      if (line.selectedInventoryItem != null) {
-        await DatabaseHelper.instance.adjustInventoryStock(
-          line.selectedInventoryItem!.id!,
-          -int.parse(line.quantityCtrl.text.trim()),
-          reason: 'Sale',
-        );
-      }
+    // Refresh VAT tracker since a Paid sale adds to annual turnover
+    if (success && mounted) {
+      await context.read<VatProvider>().loadTurnover();
     }
 
-    // Refresh VAT tracker once, since a Paid sale adds to annual turnover
-    if (allSucceeded && mounted) {
-      await context.read<VatProvider>().loadTurnover();
+    // If this sale was linked to an inventory item, reduce stock by
+    // the quantity sold
+    if (success && _selectedInventoryItem != null) {
+      await DatabaseHelper.instance.adjustInventoryStock(
+        _selectedInventoryItem!.id!,
+        -int.parse(_quantityCtrl.text.trim()),
+      );
     }
 
     setState(() => _isSaving = false);
     if (!mounted) return;
 
-    if (allSucceeded) {
+    if (success) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_lines.length > 1
-              ? 'Sale recorded successfully (${_lines.length} items)!'
-              : 'Sale recorded successfully!'),
-          backgroundColor: AppColors.primary,
-        ),
+        const SnackBar(content: Text('Sale recorded successfully!'), backgroundColor: AppColors.primary),
       );
     } else {
-      _showError('Some items could not be saved. Please check and try again.');
+      _showError('Failed to save. Please try again.');
     }
   }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.red));
-  }
-
-  // ── One line item's fields ───────────────────────────────────
-  Widget _buildLineItem(int index) {
-    final line = _lines[index];
-    final isLinked = line.selectedInventoryItem != null;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('Item ${index + 1}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
-              ),
-              if (_lines.length > 1)
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.close, size: 18, color: AppColors.expense),
-                  onPressed: () => _removeLine(index),
-                ),
-            ],
-          ),
-          if (_inventoryItems.isNotEmpty) ...[
-            DropdownButtonFormField<InventoryItem>(
-              value: line.selectedInventoryItem,
-              decoration: const InputDecoration(
-                labelText: 'Link to Inventory Item (optional)', border: OutlineInputBorder(),
-                helperText: 'Auto-fills the item, price, and cost — and reduces stock on save.',
-                helperMaxLines: 2,
-              ),
-              items: _inventoryItems
-                  .map((i) => DropdownMenuItem(
-                        value: i,
-                        child: Text('${i.name} (${i.stockQuantity} in stock)', overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
-              onChanged: (item) {
-                setState(() {
-                  line.selectedInventoryItem = item;
-                  if (item != null) {
-                    line.itemCtrl.text = item.name;
-                    if (item.sellingPrice > 0) line.unitPriceCtrl.text = item.sellingPrice.toStringAsFixed(2);
-                    if (item.costPrice > 0) line.costPriceCtrl.text = item.costPrice.toStringAsFixed(2);
-                  }
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          TextFormField(
-            controller: line.itemCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Item / Service *', hintText: 'e.g., 2 yards of Ankara fabric',
-              border: OutlineInputBorder(),
-            ),
-            validator: (val) {
-              if (val == null || val.trim().length < 2) return 'Enter the item or service sold';
-              return null;
-            },
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: line.quantityCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Quantity *', border: OutlineInputBorder()),
-                  validator: (val) {
-                    final q = int.tryParse(val ?? '');
-                    if (q == null || q <= 0) return 'Must be > 0';
-                    return null;
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: line.unitPriceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                      labelText: 'Unit Price *', prefixText: 'GH₵ ', border: OutlineInputBorder()),
-                  validator: (val) {
-                    final p = double.tryParse(val ?? '');
-                    if (p == null || p <= 0) return 'Must be > 0';
-                    return null;
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Unit cost price: locked once an inventory item is linked
-          // — the only place to change it is Inventory ▸ Edit Prices,
-          // so every price change is captured in one audit trail.
-          isLinked
-              ? InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Unit Cost Price', border: OutlineInputBorder(),
-                    helperText: 'From Inventory — edit it there, not here.',
-                    helperMaxLines: 2,
-                    filled: true, fillColor: Color(0xFFF0F0F0),
-                  ),
-                  child: Text(
-                    AppFormat.currency(double.tryParse(line.costPriceCtrl.text) ?? 0),
-                    style: const TextStyle(color: AppColors.textMuted),
-                  ),
-                )
-              : TextFormField(
-                  controller: line.costPriceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Unit Cost Price (optional)', prefixText: 'GH₵ ', border: OutlineInputBorder(),
-                    helperText: 'What this item cost you — powers gross profit tracking.',
-                    helperMaxLines: 2,
-                  ),
-                  validator: (val) {
-                    if (val == null || val.trim().isEmpty) return null;
-                    final p = double.tryParse(val);
-                    if (p == null || p < 0) return 'Enter a valid cost, or leave blank';
-                    return null;
-                  },
-                ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text('Line total: ${AppFormat.currency(line.total)}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -932,8 +437,6 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                     decoration: const InputDecoration(
                       labelText: 'Date *', border: OutlineInputBorder(),
                       suffixIcon: Icon(Icons.calendar_today, size: 18),
-                      helperText: 'Dates more than 3 days old require sign-in to confirm.',
-                      helperMaxLines: 2,
                     ),
                     child: Text(AppFormat.displayDate(AppFormat.dateToString(_selectedDate))),
                   ),
@@ -965,20 +468,100 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                     );
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-                const Text('Items Sold', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                for (int i = 0; i < _lines.length; i++) _buildLineItem(i),
+                if (_inventoryItems.isNotEmpty) ...[
+                  DropdownButtonFormField<InventoryItem>(
+                    value: _selectedInventoryItem,
+                    decoration: const InputDecoration(
+                      labelText: 'Link to Inventory Item (optional)', border: OutlineInputBorder(),
+                      helperText: 'Auto-fills the item, price, and cost — and reduces stock on save.',
+                      helperMaxLines: 2,
+                    ),
+                    items: _inventoryItems
+                        .map((i) => DropdownMenuItem(
+                              value: i,
+                              child: Text('${i.name} (${i.stockQuantity} in stock)', overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: (item) {
+                      setState(() {
+                        _selectedInventoryItem = item;
+                        if (item != null) {
+                          _itemCtrl.text = item.name;
+                          if (item.sellingPrice > 0) _unitPriceCtrl.text = item.sellingPrice.toStringAsFixed(2);
+                          if (item.costPrice > 0) _costPriceCtrl.text = item.costPrice.toStringAsFixed(2);
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
-                OutlinedButton.icon(
-                  onPressed: _addLine,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add Another Item'),
+                TextFormField(
+                  controller: _itemCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Item / Service *', hintText: 'e.g., 2 yards of Ankara fabric',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().length < 2) return 'Enter the item or service sold';
+                    return null;
+                  },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-                // ── Live-calculated grand total display ──────────
+                // Quantity and Unit Price side by side
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _quantityCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Quantity *', border: OutlineInputBorder()),
+                        validator: (val) {
+                          final q = int.tryParse(val ?? '');
+                          if (q == null || q <= 0) return 'Must be > 0';
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _unitPriceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Unit Price *', prefixText: 'GH₵ ', border: OutlineInputBorder()),
+                        validator: (val) {
+                          final p = double.tryParse(val ?? '');
+                          if (p == null || p <= 0) return 'Must be > 0';
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _costPriceCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Unit Cost Price (optional)', prefixText: 'GH₵ ', border: OutlineInputBorder(),
+                    helperText: 'What this item cost you — powers gross profit tracking.',
+                    helperMaxLines: 2,
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) return null;
+                    final p = double.tryParse(val);
+                    if (p == null || p < 0) return 'Enter a valid cost, or leave blank';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // ── Live-calculated total display ──────────────
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
@@ -992,8 +575,9 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(_lines.length > 1 ? 'Grand Total (${_lines.length} items)' : 'Total Amount',
-                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          const Text('Total Amount', style: TextStyle(fontWeight: FontWeight.w600)),
+                          // This text rebuilds automatically because we call
+                          // setState() in the controller listeners above
                           Text(
                             AppFormat.currency(_computedTotal),
                             style: const TextStyle(
@@ -1001,20 +585,22 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Gross Profit', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                          Text(
-                            AppFormat.currency(_computedProfit),
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                                color: _computedProfit >= 0 ? AppColors.income : AppColors.expense),
-                          ),
-                        ],
-                      ),
+                      if (_costPriceCtrl.text.trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Gross Profit', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                            Text(
+                              AppFormat.currency(_computedProfit),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: _computedProfit >= 0 ? AppColors.income : AppColors.expense),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1065,7 +651,7 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                       labelText: 'Amount Paid So Far *',
                       prefixText: 'GH₵ ',
                       border: OutlineInputBorder(),
-                      helperText: 'Split automatically across items sold; the rest can be recorded later.',
+                      helperText: 'The remaining balance can be recorded later from the sale\'s detail view.',
                       helperMaxLines: 2,
                     ),
                   ),
@@ -1372,16 +958,6 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
                   label: Text(_isSharingReceipt ? 'Preparing…' : 'Share Receipt'),
                 ),
               ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.expense),
-                  onPressed: () => _confirmAndDelete(sale),
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Delete This Sale'),
-                ),
-              ),
               const SizedBox(height: 20),
             ],
           ),
@@ -1391,33 +967,6 @@ class _SaleDetailSheetState extends State<_SaleDetailSheet> {
   }
 
   bool _isSharingReceipt = false;
-
-  Future<void> _confirmAndDelete(Sale sale) async {
-    final confirmedIntent = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Delete this sale?'),
-            content: Text('Delete sale of "${sale.itemDescription}"? This cannot be undone.'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete', style: TextStyle(color: Colors.red)),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!confirmedIntent) return;
-    if (!mounted) return;
-
-    final verified = await verifyIdentity(context, reason: 'delete this sale');
-    if (!verified) return;
-    if (!mounted) return;
-
-    await context.read<SalesProvider>().deleteSale(sale.id!);
-    if (mounted) Navigator.pop(context);
-  }
 
   Future<void> _shareReceipt(Sale sale) async {
     setState(() => _isSharingReceipt = true);
