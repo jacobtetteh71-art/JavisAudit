@@ -16,6 +16,7 @@ import '../database/database_helper.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import '../utils/document_generator.dart';
 
 class AuditReportScreen extends StatefulWidget {
   const AuditReportScreen({super.key});
@@ -121,6 +122,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
         pw.Page(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
+          footer: (context) => buildFooter(profile, context),
           build: (context) => pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
@@ -167,6 +169,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
         pw.Page(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
+          footer: (context) => buildFooter(profile, context),
           build: (context) {
             // Build monthly totals from raw rows
             final monthlyIncome = List.generate(12, (i) {
@@ -230,6 +233,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
           pw.MultiPage(
             pageFormat: PdfPageFormat.a4,
             margin: const pw.EdgeInsets.all(32),
+            footer: (context) => buildFooter(profile, context),
             build: (context) => [
               pw.Text('Income Detail — $_selectedYear',
                   style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
@@ -271,6 +275,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
           pw.MultiPage(
             pageFormat: PdfPageFormat.a4,
             margin: const pw.EdgeInsets.all(32),
+            footer: (context) => buildFooter(profile, context),
             build: (context) => [
               pw.Text('Expense Detail — $_selectedYear',
                   style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
@@ -311,6 +316,7 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
         pw.Page(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
+          footer: (context) => buildFooter(profile, context),
           build: (context) => pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [

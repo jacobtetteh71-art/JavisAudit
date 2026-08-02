@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import '../utils/expense_receipt_generator.dart';
 import '../widgets/cheque_details_fields.dart';
 import 'recurring_expense_templates_screen.dart';
 import 'verify_identity_sheet.dart';
@@ -410,10 +411,16 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
     if (!mounted) return;
 
     if (success) {
+      final profile = context.read<ProfileProvider>().profile;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Expense recorded successfully!'), backgroundColor: AppColors.primary),
       );
+      // A 'Paid' expense is settled in full right now — generate its
+      // receipt immediately rather than making the owner dig for it.
+      if (_selectedStatus == 'Paid') {
+        shareExpenseReceipt(profile: profile, expense: expense);
+      }
     } else {
       _showError('Failed to save. Please try again.');
     }
@@ -779,8 +786,21 @@ class _ExpenseDetailSheetState extends State<_ExpenseDetailSheet> {
                                   style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
                             ],
                           ),
-                          Text(AppFormat.currency(p.amount),
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.expense)),
+                          Row(
+                            children: [
+                              Text(AppFormat.currency(p.amount),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.expense)),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                tooltip: 'Reprint receipt for this payment',
+                                icon: const Icon(Icons.receipt_long_outlined, size: 16, color: AppColors.textMuted),
+                                onPressed: () {
+                                  final profile = context.read<ProfileProvider>().profile;
+                                  shareExpenseReceipt(profile: profile, expense: expense, payment: p);
+                                },
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     )),
@@ -798,22 +818,38 @@ class _ExpenseDetailSheetState extends State<_ExpenseDetailSheet> {
                   ),
                 )
               else
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryLight,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.check_circle, color: AppColors.primary, size: 18),
-                      SizedBox(width: 6),
-                      Text('Fully paid off',
-                          style: TextStyle(fontSize: 12, color: AppColors.primaryDark)),
-                    ],
-                  ),
+                Column(
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryLight,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle, color: AppColors.primary, size: 18),
+                          SizedBox(width: 6),
+                          Text('Fully paid off',
+                              style: TextStyle(fontSize: 12, color: AppColors.primaryDark)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          final profile = context.read<ProfileProvider>().profile;
+                          shareExpenseReceipt(profile: profile, expense: expense);
+                        },
+                        icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                        label: const Text('Share Receipt'),
+                      ),
+                    ),
+                  ],
                 ),
               const SizedBox(height: 8),
               SizedBox(
@@ -885,10 +921,13 @@ class _RecordExpensePaymentSheetState extends State<_RecordExpensePaymentSheet> 
 
     setState(() => _isSaving = true);
 
+    final amount = double.parse(_amountCtrl.text.trim());
+    final date = AppFormat.dateToString(_selectedDate);
+
     final success = await context.read<ExpenseProvider>().recordPayment(
           expenseId: widget.expense.id!,
-          amount: double.parse(_amountCtrl.text.trim()),
-          date: AppFormat.dateToString(_selectedDate),
+          amount: amount,
+          date: date,
           paymentMethod: _selectedPaymentMethod!,
         );
 
@@ -896,10 +935,20 @@ class _RecordExpensePaymentSheetState extends State<_RecordExpensePaymentSheet> 
     if (!mounted) return;
 
     if (success) {
+      final profile = context.read<ProfileProvider>().profile;
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Payment recorded!'), backgroundColor: AppColors.primary),
       );
+      // Generate a receipt for exactly this installment.
+      final payment = ExpensePayment(
+        expenseId: widget.expense.id!,
+        amount: amount,
+        paymentMethod: _selectedPaymentMethod!,
+        date: date,
+        createdAt: DateTime.now().toIso8601String(),
+      );
+      shareExpenseReceipt(profile: profile, expense: widget.expense, payment: payment);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to record payment. Please try again.'), backgroundColor: Colors.red),
