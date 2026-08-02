@@ -53,7 +53,7 @@ dependencies:
   path_provider: ^2.1.3
 
   # share_plus: opens the Android share sheet so users can share PDF/backup via WhatsApp, email, etc.
-  share_plus: ^9.0.0
+  share_plus: ^13.0.0
 
   # ── Utilities ───────────────────────────────────────────────────────────────
   # intl: formats dates (e.g., "15 Jun 2026") and numbers (e.g., "GH₵ 1,250.00")
