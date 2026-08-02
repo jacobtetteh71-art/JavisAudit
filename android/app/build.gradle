@@ -10,11 +10,6 @@ plugins {
     id "kotlin-android"
     // The Flutter Gradle Plugin must come after Android & Kotlin
     id "dev.flutter.flutter-gradle-plugin"
-    // Cloud Sync (Firebase) — reads google-services.json in this
-    // folder. A PLACEHOLDER file is included so the build doesn't
-    // break, but Cloud Sync won't actually work until you replace it
-    // with your real one from the Firebase console (see SYNC_SETUP.md).
-    id "com.google.gms.google-services"
 }
 
 def localProperties = new Properties()
@@ -90,4 +85,20 @@ dependencies {
 
     // Provides the actual Java 8+ API implementations enabled above
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
+}
+
+// ── Cloud Sync (Firebase) — applied conditionally ────────────
+// The google-services plugin needs a REAL google-services.json
+// (downloaded from your own Firebase project — see SYNC_SETUP.md)
+// to work at all; feeding it a fake/placeholder file makes it
+// crash during Gradle's project setup with confusing, unrelated-
+// looking errors ("compileSdkVersion is not specified" etc.).
+// So: no file here yet → skip it entirely, and the app still
+// builds and runs fine, just with Cloud Sync inactive (already
+// handled gracefully by the try/catch around Firebase.initializeApp()
+// in main.dart). Once you add your real google-services.json to
+// this folder, this starts applying automatically — no other
+// change needed.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
 }

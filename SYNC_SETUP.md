@@ -7,6 +7,9 @@ Everything below is a one-time setup, done on **your own computer with
 internet access** (this sandbox has no route to Firebase's servers, so it
 could not be done here).
 
+Until you complete this setup, the app (and CI build) work completely
+normally — Cloud Sync just stays inactive rather than causing any errors.
+
 ## 1. Create a free Firebase project
 
 1. Go to https://console.firebase.google.com
@@ -33,8 +36,10 @@ flutterfire configure
 - When asked which platforms, choose **Android** only (this project only
   ships Android).
 - This **overwrites** `lib/firebase_options.dart` with your real values and
-  also downloads a real `android/app/google-services.json`, replacing the
-  placeholder ones committed here.
+  drops a real `android/app/google-services.json` next to
+  `android/app/build.gradle`. `android/app/build.gradle` checks for that
+  file at build time and only turns Cloud Sync's Gradle plugin on when it's
+  actually there — so there's nothing else to wire up.
 
 ## 4. Turn on the two Firebase products the app uses
 
