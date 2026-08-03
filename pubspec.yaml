@@ -53,14 +53,10 @@ dependencies:
   path_provider: ^2.1.3
 
   # share_plus: opens the Android share sheet so users can share PDF/backup via WhatsApp, email, etc.
-  # PINNED to ^12.0.2: now that firebase_auth is a dependency (it pulls in
-  # firebase_auth_web, which needs package:web ^1.0.0), share_plus versions
-  # below 10.1 can no longer be used — they depend on package:web ^0.5.0,
-  # which conflicts. 12.x is the version pub's own solver requires here.
-  # This in turn means the native Android side needs AGP >=8.12.1 and
-  # Gradle >=8.13 — both are set in android/build.gradle,
-  # android/settings.gradle, and android/gradle/wrapper/gradle-wrapper.properties.
-  share_plus: ^12.0.2
+  # (was ^9.0.0 — that version's own Android build files predate the
+  # project's Gradle setup and crash it with a misleading
+  # "compileSdkVersion is not specified" error; 12.x fixed this)
+  share_plus: ^12.0.1
 
   # ── Utilities ───────────────────────────────────────────────────────────────
   # intl: formats dates (e.g., "15 Jun 2026") and numbers (e.g., "GH₵ 1,250.00")

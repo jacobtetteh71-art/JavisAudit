@@ -6,10 +6,7 @@
 .pub-cache/
 .pub/
 build/
-# NOTE: pubspec.lock is intentionally NOT ignored for this app.
-# Committing it pins every dependency (including transitive ones like
-# share_plus) to an exact tested version, so CI can't silently resolve
-# a newer major version with incompatible native Android requirements.
+*.lock
 
 # Android
 android/.gradle/
