@@ -14,8 +14,11 @@ buildscript {
 
     dependencies {
         // Android Gradle Plugin — must stay compatible with the
-        // compileSdk/targetSdk 34 declared in app/build.gradle
-        classpath 'com.android.tools.build:gradle:8.3.0'
+        // compileSdk/targetSdk 34 declared in app/build.gradle, and
+        // with the Gradle version in gradle/wrapper/gradle-wrapper.properties
+        // (AGP 8.7.x requires Gradle 8.9+; Flutter 3.27+ requires AGP 8.1.1+
+        // and its own Gradle plugin now requires Gradle 8.7+)
+        classpath 'com.android.tools.build:gradle:8.7.3'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
