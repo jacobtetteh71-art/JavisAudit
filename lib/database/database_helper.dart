@@ -54,7 +54,7 @@ class DatabaseHelper {
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -241,6 +241,27 @@ class DatabaseHelper {
         END;
       ''');
     }
+
+    if (oldVersion < 11) {
+      // BUGFIX: `settings` (PIN/password hashes, currency symbol,
+      // VAT threshold) has always been included in the Cloud Sync
+      // payload — see exportAllData()/restoreFromBackup() below —
+      // but was missing from `_syncedTables`, so it never got
+      // change-tracking triggers. Practical effect: changing your
+      // PIN (or the VAT threshold) alone never updated
+      // sync_meta.last_modified_at, so the app didn't know that
+      // change needed to be pushed — and a later pull could
+      // silently overwrite it with the old cloud copy.
+      //
+      // Re-running _createSyncMetaAndTriggers here is safe even on
+      // a database that already has sync set up: every statement
+      // inside it is idempotent (CREATE TABLE IF NOT EXISTS,
+      // INSERT OR IGNORE, DROP+CREATE TRIGGER). `settings` is now
+      // in `_syncedTables`, so this call only ADDS the three
+      // triggers that table was missing — it doesn't touch or
+      // duplicate anything already set up for the other tables.
+      await _createSyncMetaAndTriggers(db);
+    }
   }
 
   // ── inventory_change_log ─────────────────────────────────────
@@ -270,6 +291,15 @@ class DatabaseHelper {
   // "Sync Now". (Files referenced by *_path columns — profile
   // pictures, cheque photos, business documents — stay local
   // only; only the text/number data syncs.)
+  //
+  // `settings` is included here (as of schema v11) because it's
+  // already part of exportAllData()/restoreFromBackup() below — it
+  // holds pin_hash/password_hash/auth_salt, which is what makes
+  // "sign in on a new phone restores your old PIN too" work — plus
+  // currency_symbol and vat_threshold. Without a trigger here,
+  // changes to any of those went untracked by sync_meta even though
+  // they were still being pushed/pulled. See the oldVersion < 11
+  // migration block above for the upgrade path on existing installs.
   static const List<String> _syncedTables = [
     'business_profile',
     'income',
@@ -281,6 +311,7 @@ class DatabaseHelper {
     'inventory_items',
     'customers',
     'inventory_change_log',
+    'settings',
   ];
 
   // ── _createSyncMetaAndTriggers ───────────────────────────────
@@ -1521,5 +1552,45 @@ class DatabaseHelper {
         ...values,
       });
     }
+  }
+
+  // ── Opportunistic hash-format upgrade ────────────────────────
+  // Called by AuthProvider right after a PIN/password typed on the
+  // Lock Screen is confirmed correct AND its stored hash turns out
+  // to still be in the old, pre-PBKDF2 format (see AuthHelper).
+  // Re-saves just that one column with the new iterated hash so the
+  // upgrade happens silently over time, one successful login at a
+  // time, with no forced "reset your PIN" step for the business
+  // owner. Each of these is its own tiny UPDATE (rather than going
+  // through saveAuthCredentials) so upgrading the PIN hash never
+  // touches — or accidentally clobbers — the password hash, or vice
+  // versa, if only one of the two has been typed recently.
+  // NOTE: unlike sync_meta (CHECK (id = 1)), `settings`'s id is a
+  // plain AUTOINCREMENT — after a "Delete All Data" + fresh
+  // saveAuthCredentials insert, its single row is NOT guaranteed to
+  // still have id 1. So, same as saveAuthCredentials above, we look
+  // up the current row's real id rather than assuming it.
+  Future<void> updatePinHash(String newHash) async {
+    final db = await database;
+    final existing = await db.query('settings', limit: 1);
+    if (existing.isEmpty) return; // nothing to upgrade — shouldn't happen mid-verify
+    await db.update(
+      'settings',
+      {'pin_hash': newHash, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [existing.first['id']],
+    );
+  }
+
+  Future<void> updatePasswordHash(String newHash) async {
+    final db = await database;
+    final existing = await db.query('settings', limit: 1);
+    if (existing.isEmpty) return;
+    await db.update(
+      'settings',
+      {'password_hash': newHash, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [existing.first['id']],
+    );
   }
 }

@@ -4,6 +4,7 @@
 // Handles everything about protecting the app's data:
 //   • First-time PIN + backup password setup
 //   • Checking a PIN or password typed on the Lock Screen
+//   • Locking out repeated wrong guesses (see the Lockout section)
 //   • The current session's logged-in/out state
 //   • Logging out (locks the app again without deleting any data)
 //
@@ -14,6 +15,7 @@
 // ============================================================
 
 import 'package:flutter/foundation.dart';
+import 'package:hive/hive.dart';
 import '../database/database_helper.dart';
 import '../utils/auth_helper.dart';
 
@@ -25,6 +27,71 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoggedIn     => _isLoggedIn;
   bool get hasCredentials => _hasCredentials;
   bool get isLoading      => _isLoading;
+
+  // ── Failed-attempt lockout ───────────────────────────────────
+  // Deliberately per-device, NOT synced to the cloud — it lives in
+  // the local Hive 'settings' box (already opened in main.dart),
+  // same place notification flags live. That's the right home for
+  // it: it's a property of "how many wrong guesses THIS phone has
+  // seen recently", not part of the business's ledger data.
+  //
+  // Shared between PIN and password attempts on purpose — both
+  // unlock the same data, so counting them separately would let
+  // someone reset the counter just by switching fields.
+  Box get _lockBox => Hive.box('settings');
+
+  static const int _maxAttemptsBeforeLockout = 5;
+  // Every _escalateEvery additional failures beyond the first
+  // lockout moves one step further down this schedule (capped at
+  // the last entry), so someone hammering "Unlock" over and over
+  // keeps getting slower, not just once.
+  static const int _escalateEvery = 3;
+  static const List<Duration> _lockoutSchedule = [
+    Duration(seconds: 30),
+    Duration(minutes: 2),
+    Duration(minutes: 10),
+  ];
+
+  int get _failedAttempts => _lockBox.get('pin_failed_attempts', defaultValue: 0) as int;
+
+  DateTime? get _lockedUntil {
+    final iso = _lockBox.get('pin_locked_until') as String?;
+    return iso == null ? null : DateTime.tryParse(iso);
+  }
+
+  /// True while a lockout from too many wrong PIN/password attempts
+  /// is still active. The Lock Screen checks this before even trying
+  /// to verify, and disables its input while it's true.
+  bool get isLockedOut {
+    final until = _lockedUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
+  /// How much longer the current lockout has to run, or null if
+  /// there isn't an active one. The Lock Screen uses this to show a
+  /// "try again in Xs" countdown.
+  Duration? get lockoutRemaining {
+    final until = _lockedUntil;
+    if (until == null) return null;
+    final remaining = until.difference(DateTime.now());
+    return remaining.isNegative ? null : remaining;
+  }
+
+  Future<void> _onFailedAttempt() async {
+    final attempts = _failedAttempts + 1;
+    await _lockBox.put('pin_failed_attempts', attempts);
+    if (attempts >= _maxAttemptsBeforeLockout) {
+      final overBy = attempts - _maxAttemptsBeforeLockout;
+      final bucket = (overBy ~/ _escalateEvery).clamp(0, _lockoutSchedule.length - 1);
+      final lockDuration = _lockoutSchedule[bucket];
+      await _lockBox.put('pin_locked_until', DateTime.now().add(lockDuration).toIso8601String());
+    }
+  }
+
+  Future<void> _onSuccessfulUnlock() async {
+    await _lockBox.put('pin_failed_attempts', 0);
+    await _lockBox.delete('pin_locked_until');
+  }
 
   // ── loadAuthStatus: called once on app startup ─────────────
   // Checks whether a PIN has already been set up, so SplashScreen
@@ -46,14 +113,17 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> setupCredentials(String pin, String password) async {
     try {
       final salt = AuthHelper.generateSalt();
-      final pinHash = AuthHelper.hash(pin, salt);
-      final passwordHash = AuthHelper.hash(password, salt);
+      final pinHash = await AuthHelper.hashAsync(pin, salt);
+      final passwordHash = await AuthHelper.hashAsync(password, salt);
 
       await DatabaseHelper.instance.saveAuthCredentials(
         pinHash: pinHash,
         passwordHash: passwordHash,
         salt: salt,
       );
+
+      // A fresh PIN means any previous lockout no longer applies.
+      await _onSuccessfulUnlock();
 
       _hasCredentials = true;
       // Setting up credentials also counts as being logged in,
@@ -69,30 +139,57 @@ class AuthProvider extends ChangeNotifier {
 
   // ── verifyPin: called when the user types their PIN to unlock ─
   Future<bool> verifyPin(String pin) async {
+    if (isLockedOut) return false;
+
     final row = await DatabaseHelper.instance.getAuthCredentials();
     if (row == null || row['pin_hash'] == null || row['auth_salt'] == null) {
       return false;
     }
-    final isValid = AuthHelper.verify(pin, row['auth_salt'] as String, row['pin_hash'] as String);
+    final storedHash = row['pin_hash'] as String;
+    final salt = row['auth_salt'] as String;
+    final isValid = await AuthHelper.verify(pin, salt, storedHash);
+
     if (isValid) {
       _isLoggedIn = true;
-      notifyListeners();
+      await _onSuccessfulUnlock();
+      // Opportunistic upgrade: if this PIN was still stored using
+      // the old single-round SHA-256 format, re-save it under the
+      // new PBKDF2 format now that we've confirmed the owner typed
+      // it correctly. Silent — nothing for the business owner to do.
+      if (AuthHelper.isLegacyFormat(storedHash)) {
+        final upgradedHash = await AuthHelper.hashAsync(pin, salt);
+        await DatabaseHelper.instance.updatePinHash(upgradedHash);
+      }
+    } else {
+      await _onFailedAttempt();
     }
+    notifyListeners();
     return isValid;
   }
 
   // ── verifyPassword: the "Forgot PIN? Use password instead" path ─
   Future<bool> verifyPassword(String password) async {
+    if (isLockedOut) return false;
+
     final row = await DatabaseHelper.instance.getAuthCredentials();
     if (row == null || row['password_hash'] == null || row['auth_salt'] == null) {
       return false;
     }
-    final isValid =
-        AuthHelper.verify(password, row['auth_salt'] as String, row['password_hash'] as String);
+    final storedHash = row['password_hash'] as String;
+    final salt = row['auth_salt'] as String;
+    final isValid = await AuthHelper.verify(password, salt, storedHash);
+
     if (isValid) {
       _isLoggedIn = true;
-      notifyListeners();
+      await _onSuccessfulUnlock();
+      if (AuthHelper.isLegacyFormat(storedHash)) {
+        final upgradedHash = await AuthHelper.hashAsync(password, salt);
+        await DatabaseHelper.instance.updatePasswordHash(upgradedHash);
+      }
+    } else {
+      await _onFailedAttempt();
     }
+    notifyListeners();
     return isValid;
   }
 
@@ -109,8 +206,11 @@ class AuthProvider extends ChangeNotifier {
   // changing the PIN, editing the business profile, deleting a
   // record, or restoring a backup. Unlike verifyPin/verifyPassword
   // (used on the Lock Screen), these do NOT change _isLoggedIn —
-  // the user is already logged in; we're just double-checking
-  // their identity for one sensitive action.
+  // the user is already logged in; we're just double-checking their
+  // identity for one sensitive action. Deliberately NOT subject to
+  // the Lock Screen's failed-attempt lockout: the device is already
+  // unlocked at this point, so the higher-value target (getting
+  // past the Lock Screen itself) is what the lockout protects.
   Future<bool> confirmPin(String pin) async {
     final row = await DatabaseHelper.instance.getAuthCredentials();
     if (row == null || row['pin_hash'] == null || row['auth_salt'] == null) return false;

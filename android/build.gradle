@@ -6,19 +6,20 @@
 // ============================================================
 
 buildscript {
-    ext.kotlin_version = '1.9.22'
+    // Bumped from 1.9.22 -> 2.2.0: required by share_plus 12.x's own
+    // Android build (see pubspec.yaml comment on the share_plus line).
+    ext.kotlin_version = '2.2.0'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        // Android Gradle Plugin — must stay compatible with the
-        // compileSdk/targetSdk 34 declared in app/build.gradle, and
-        // with the Gradle version in gradle/wrapper/gradle-wrapper.properties
-        // (AGP 8.7.x requires Gradle 8.9+; Flutter 3.27+ requires AGP 8.1.1+
-        // and its own Gradle plugin now requires Gradle 8.7+)
-        classpath 'com.android.tools.build:gradle:8.7.3'
+        // Android Gradle Plugin — bumped from 8.3.0 -> 8.12.1: share_plus
+        // 12.x's build.gradle requires AGP >=8.12.1 to evaluate correctly.
+        // Must stay paired with Gradle >=8.13 in
+        // android/gradle/wrapper/gradle-wrapper.properties.
+        classpath 'com.android.tools.build:gradle:8.12.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }

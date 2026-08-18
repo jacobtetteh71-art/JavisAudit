@@ -16,6 +16,7 @@
 // consistent, modern design language.
 // ============================================================
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -41,6 +42,13 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
   bool _isChecking = false;
   String? _errorText;
 
+  // Ticks once a second while a lockout (see AuthProvider.isLockedOut)
+  // is active, so the "try again in Xs" message counts down live and
+  // the Unlock button re-enables itself the moment it expires —
+  // without the user needing to back out and back in to notice.
+  Timer? _lockoutTimer;
+  bool _isLockedOut = false;
+
   // A short horizontal shake on the entry card when the PIN/password
   // is wrong — a small, deliberate bit of motion that says "try
   // again" without needing an extra word of copy.
@@ -57,6 +65,16 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
       TweenSequenceItem(tween: Tween(begin: 8.0, end: -6.0), weight: 1),
       TweenSequenceItem(tween: Tween(begin: -6.0, end: 0.0), weight: 1),
     ]).animate(CurvedAnimation(parent: _shakeController, curve: Curves.easeOut));
+
+    // Covers the case where the Lock Screen is reopened (app
+    // backgrounded and resumed) while a lockout from before is
+    // still counting down.
+    final auth = context.read<AuthProvider>();
+    if (auth.isLockedOut) {
+      _isLockedOut = true;
+      _errorText = _lockoutMessage(auth.lockoutRemaining);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _startLockoutCountdown(auth));
+    }
   }
 
   @override
@@ -64,16 +82,56 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
     _pinCtrl.dispose();
     _passwordCtrl.dispose();
     _shakeController.dispose();
+    _lockoutTimer?.cancel();
     super.dispose();
   }
 
+  String _lockoutMessage(Duration? remaining) {
+    if (remaining == null) return 'Too many attempts. Try again shortly.';
+    final seconds = remaining.inSeconds;
+    if (seconds >= 60) {
+      final minutes = (seconds / 60).ceil();
+      return 'Too many attempts. Try again in $minutes minute${minutes == 1 ? '' : 's'}.';
+    }
+    return 'Too many attempts. Try again in ${seconds}s.';
+  }
+
+  void _startLockoutCountdown(AuthProvider auth) {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (!auth.isLockedOut) {
+        _lockoutTimer?.cancel();
+        setState(() {
+          _isLockedOut = false;
+          _errorText = null;
+        });
+        return;
+      }
+      setState(() => _errorText = _lockoutMessage(auth.lockoutRemaining));
+    });
+  }
+
   Future<void> _unlock() async {
+    final auth = context.read<AuthProvider>();
+
+    // Belt-and-braces: the button is already disabled while locked
+    // out, but onSubmitted (hitting "done" on the keyboard) can still
+    // reach here directly.
+    if (auth.isLockedOut) {
+      setState(() {
+        _isLockedOut = true;
+        _errorText = _lockoutMessage(auth.lockoutRemaining);
+      });
+      _startLockoutCountdown(auth);
+      return;
+    }
+
     setState(() {
       _isChecking = true;
       _errorText = null;
     });
 
-    final auth = context.read<AuthProvider>();
     final bool isValid = _usePasswordInstead
         ? await auth.verifyPassword(_passwordCtrl.text.trim())
         : await auth.verifyPin(_pinCtrl.text.trim());
@@ -86,13 +144,18 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
         (route) => false,
       );
     } else {
+      final lockedNow = auth.isLockedOut;
       setState(() {
         _isChecking = false;
-        _errorText = _usePasswordInstead ? 'Incorrect password. Try again.' : 'Incorrect PIN. Try again.';
+        _isLockedOut = lockedNow;
+        _errorText = lockedNow
+            ? _lockoutMessage(auth.lockoutRemaining)
+            : (_usePasswordInstead ? 'Incorrect password. Try again.' : 'Incorrect PIN. Try again.');
       });
       _pinCtrl.clear();
       _passwordCtrl.clear();
       _shakeController.forward(from: 0);
+      if (lockedNow) _startLockoutCountdown(auth);
     }
   }
 
@@ -195,6 +258,7 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
                             ? TextField(
                                 controller: _passwordCtrl,
                                 obscureText: true,
+                                enabled: !_isLockedOut,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(fontSize: 16),
                                 decoration: const InputDecoration(
@@ -208,6 +272,7 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
                             : TextField(
                                 controller: _pinCtrl,
                                 obscureText: true,
+                                enabled: !_isLockedOut,
                                 keyboardType: TextInputType.number,
                                 textAlign: TextAlign.center,
                                 maxLength: 6,
@@ -245,7 +310,7 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
                             padding: const EdgeInsets.symmetric(vertical: 15),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                           ),
-                          onPressed: _isChecking ? null : _unlock,
+                          onPressed: (_isChecking || _isLockedOut) ? null : _unlock,
                           child: _isChecking
                               ? const SizedBox(
                                   height: 20, width: 20,
@@ -256,9 +321,15 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
                       const SizedBox(height: 6),
                       TextButton(
                         onPressed: () {
+                          final auth = context.read<AuthProvider>();
                           setState(() {
                             _usePasswordInstead = !_usePasswordInstead;
-                            _errorText = null;
+                            // Preserve the lockout message across the toggle —
+                            // a lockout applies to both fields (see
+                            // AuthProvider's shared counter), so switching
+                            // which one is shown shouldn't make the
+                            // countdown disappear.
+                            _errorText = _isLockedOut ? _lockoutMessage(auth.lockoutRemaining) : null;
                             _pinCtrl.clear();
                             _passwordCtrl.clear();
                           });
