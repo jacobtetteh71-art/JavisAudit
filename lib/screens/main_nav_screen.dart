@@ -138,7 +138,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
                     ..._tabTiles(0, 1),
 
                     _sectionHeader('RECORD'),
-                    ..._tabTiles(1, 3),
+                    ..._tabTiles(1, 4),
 
                     _sectionHeader('INVENTORY & CUSTOMERS'),
                     _navTile(
@@ -266,8 +266,10 @@ class _MainNavScreenState extends State<MainNavScreen> {
   }
 
   // Builds the tab tiles for a contiguous slice of _labels/_icons —
-  // e.g. _tabTiles(0, 1) is just Dashboard; _tabTiles(1, 3) is
-  // Income through Sales.
+  // e.g. _tabTiles(0, 1) is just Dashboard; _tabTiles(1, 4) is
+  // Income through Sales. endExclusive is exclusive, same as any
+  // Dart range — _tabTiles(1, 3) would stop BEFORE index 3 (Sales)
+  // and silently leave it out of whichever section calls it.
   List<Widget> _tabTiles(int start, int endExclusive) {
     return [
       for (int i = start; i < endExclusive; i++)
