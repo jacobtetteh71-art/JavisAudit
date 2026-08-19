@@ -24,12 +24,22 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # 3. Install the Flutter SDK, pinned to match this project's
-      #    environment constraint in pubspec.yaml (sdk: '>=3.2.0 <4.0.0')
+      # 3. Install the Flutter SDK.
+      #    Bumped from 3.24.5 -> 3.32.1: 3.24.5 hits a known Flutter
+      #    tooling bug (flutter/flutter#164362 / #164369, "[Compile]:
+      #    Could not get unknown property 'flutter' for extension
+      #    'android'") that breaks the Android build for several
+      #    plugins — including flutter_plugin_android_lifecycle,
+      #    pulled in transitively by image_picker/share_plus — any
+      #    time it's built on Flutter < 3.27. 3.32.1 is comfortably
+      #    past that fix, still within this project's Dart SDK
+      #    constraint (pubspec.yaml: '>=3.2.0 <4.0.0'), and — unlike
+      #    3.44+ — predates Flutter's Material/Cupertino "moved out of
+      #    core" change, so it doesn't require any app-side migration.
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: '3.32.1'
           channel: 'stable'
           cache: true
 

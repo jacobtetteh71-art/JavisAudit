@@ -25,8 +25,14 @@ def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '
 
 android {
     namespace = "com.javisaudit.app"
-    // compileSdk 34 = Android 14 — required by several plugins (sqflite, etc.)
-    compileSdk = 34
+    // compileSdk 35 = Android 15. Bumped from 34 -> 35 because
+    // flutter_plugin_android_lifecycle (a transitive dependency of
+    // several plugins, including image_picker and share_plus) now
+    // requires SDK 35+ — building against 34 produced a "requires
+    // Android SDK version 35 or higher" warning in CI. minSdk (below)
+    // is unaffected: this only changes what SDK the app is COMPILED
+    // against, not the oldest Android version it can RUN on.
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
