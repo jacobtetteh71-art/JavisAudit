@@ -59,7 +59,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /sync_backups/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
+                   // Only these three fields are allowed — nothing
+                   // extra can be smuggled into the document.
+                   && request.resource.data.keys().hasOnly(
+                        ['payload_json', 'last_modified_at', 'synced_at'])
+                   && request.resource.data.keys().hasAll(
+                        ['payload_json', 'last_modified_at', 'synced_at'])
+                   // payload_json must actually be a string, and kept
+                   // comfortably under Firestore's 1 MiB per-document
+                   // ceiling — a defensive cap so a buggy or tampered
+                   // client can't corrupt this owner's own sync state
+                   // or blow through their storage quota in one write.
+                   && request.resource.data.payload_json is string
+                   && request.resource.data.payload_json.size() < 900000
+                   // Both fields must actually be Firestore timestamps
+                   // (not strings/numbers pretending to be one), and
+                   // synced_at can't be from more than 5 minutes in
+                   // the future — the simplest tell for a device with
+                   // a badly wrong clock or a malformed write.
+                   && request.resource.data.last_modified_at is timestamp
+                   && request.resource.data.synced_at is timestamp
+                   && request.resource.data.synced_at <= request.time + duration.value(5, 'm');
     }
   }
 }
@@ -67,7 +91,9 @@ service cloud.firestore {
 
 This is the whole security model: a signed-in owner can only ever read or
 write their **own** single backup document (`sync_backups/{their-uid}`),
-never anyone else's.
+never anyone else's — and even their own write has to actually look like
+a real sync payload (right fields, right types, right size, sane
+timestamp) rather than anything at all.
 
 ## 6. Build and test
 

@@ -10,8 +10,20 @@
 //   ensuring only one database connection is ever open.
 // ============================================================
 
-import 'package:sqflite/sqflite.dart';
+// SECURITY: uses sqflite_sqlcipher (a drop-in, API-compatible fork
+// of sqflite) instead of plain sqflite, so the database FILE itself
+// is encrypted at rest — not just protected by the app's PIN screen.
+// Before this, anyone who could read this file directly (a rooted
+// device, or an Android backup extraction — see the allowBackup fix
+// in AndroidManifest.xml) could read every business record in
+// plaintext without ever touching the app's lock screen at all.
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:path/path.dart' as p;
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'dart:math';
 
 class DatabaseHelper {
   // ── Singleton setup ────────────────────────────────────────
@@ -38,6 +50,30 @@ class DatabaseHelper {
     return _database!;
   }
 
+  // ── At-rest encryption key ───────────────────────────────────
+  // A random 256-bit key, generated once and stored in the Android
+  // Keystore (via flutter_secure_storage — hardware-backed on most
+  // devices, meaning even a rooted extraction of the app's files
+  // can't recover it without also breaking the device's secure
+  // hardware). Deliberately NOT derived from the user's PIN:
+  // changing the PIN must never require decrypting and
+  // re-encrypting the entire database, and nobody should ever have
+  // to "remember" this key — it's generated silently and never
+  // leaves this device (it is NOT part of what Cloud Sync uploads).
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+  static const String _dbKeyStorageKey = 'javisaudit_db_encryption_key';
+
+  Future<String> _getOrCreateDbEncryptionKey() async {
+    final existing = await _secureStorage.read(key: _dbKeyStorageKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+
+    final random = Random.secure();
+    final keyBytes = List<int>.generate(32, (_) => random.nextInt(256));
+    final newKey = base64UrlEncode(keyBytes);
+    await _secureStorage.write(key: _dbKeyStorageKey, value: newKey);
+    return newKey;
+  }
+
   // ── _initDatabase: open or create the SQLite file ──────────
   Future<Database> _initDatabase() async {
     // getDatabasesPath() returns the correct directory on
@@ -48,16 +84,124 @@ class DatabaseHelper {
     // e.g., /data/data/com.javisaudit/databases/javisaudit.db
     final path = p.join(dbPath, 'javisaudit.db');
 
+    final password = await _getOrCreateDbEncryptionKey();
+
+    // One-time migration for installs that already have a
+    // PLAINTEXT database on disk from before this update — see the
+    // method's own comment for exactly why this is needed and how
+    // it protects against data loss.
+    await _migrateToEncryptedDatabaseIfNeeded(path, password);
+
     // openDatabase creates the file if it doesn't exist,
     // or opens it if it does.
     // version: 1 — if we ever change the schema, we increment
     // this and handle the migration in onUpgrade
     return await openDatabase(
       path,
+      password: password,
       version: 11,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
+  }
+
+  // ── One-time migration: encrypt a pre-existing plaintext database ──
+  // Every install of this app before at-rest encryption was added
+  // wrote a PLAIN, unencrypted SQLite file at this exact path.
+  // Simply adding `password:` to openDatabase above would NOT
+  // retroactively encrypt that existing file — SQLCipher would
+  // instead fail to read it at all (a plaintext file doesn't look
+  // like a validly-encrypted one to it), which would look exactly
+  // like total data loss to the business owner the next time they
+  // opened the app. This method detects that situation and migrates
+  // the existing data into a freshly-encrypted database instead.
+  //
+  // SAFE BY DESIGN — this matters because this touches a real
+  // business's financial ledger and cannot be undone if it goes
+  // wrong:
+  //   • The original plaintext file is only ever RENAMED, never
+  //     deleted — even in the worst case, the owner's original data
+  //     still physically exists on the device afterwards.
+  //   • The new encrypted database is built at a temporary path and
+  //     only swapped into place after the export+restore into it
+  //     has fully succeeded — the original file is never touched
+  //     while that's in progress.
+  //   • Any failure anywhere in this process is caught and
+  //     swallowed: _initDatabase falls back to opening the existing
+  //     plaintext database as-is (unencrypted, but fully intact)
+  //     rather than risk bricking the app. The migration simply
+  //     retries on the next app launch.
+  Future<void> _migrateToEncryptedDatabaseIfNeeded(String path, String password) async {
+    final dbFile = File(path);
+    if (!await dbFile.exists()) return; // fresh install — nothing to migrate
+
+    // If the file already opens WITH the encryption password, it's
+    // already encrypted (a previous run already migrated it, or
+    // this is a fresh install that was created straight from this
+    // version) — nothing to do. Note: openDatabase alone can be
+    // lazy and not actually touch the file's contents, so this runs
+    // a real query — that's what actually forces SQLCipher to
+    // attempt decryption and surface a failure if the password is
+    // wrong or the file isn't encrypted at all. singleInstance:
+    // false on every probe here so a failed/errored handle for this
+    // path is never accidentally reused by the next probe below.
+    Database? probe;
+    try {
+      probe = await openDatabase(path, password: password, readOnly: true, singleInstance: false);
+      await probe.rawQuery("SELECT count(*) FROM sqlite_master");
+      await probe.close();
+      return;
+    } catch (_) {
+      // Expected the first time an existing, pre-encryption install
+      // runs this version — falls through to the plaintext check below.
+      try { await probe?.close(); } catch (_) {}
+    }
+
+    Database? plainDb;
+    Database? newDb;
+    try {
+      // Confirm this is actually a readable PLAIN SQLite file before
+      // touching anything. sqflite_sqlcipher opens plaintext files
+      // fine when no password is given.
+      plainDb = await openDatabase(path, readOnly: true, singleInstance: false);
+      final tables = await plainDb.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      if (tables.isEmpty) {
+        await plainDb.close();
+        return; // not a usable database — leave it alone rather than guess
+      }
+
+      // Export everything using the exact same logic Cloud Sync and
+      // local backups already rely on — proven, already-tested code.
+      final exported = await _exportAllDataFrom(plainDb);
+      await plainDb.close();
+      plainDb = null;
+
+      // Build the new encrypted database at a temporary path first.
+      final tempPath = '$path.encrypting_tmp';
+      if (await File(tempPath).exists()) await File(tempPath).delete();
+      newDb = await openDatabase(tempPath, password: password, version: 11, onCreate: _createTables);
+      await _restoreBackupInto(newDb, exported);
+      await newDb.close();
+      newDb = null;
+
+      // Only now — after the encrypted copy is fully built and
+      // confirmed — move the original plaintext file aside (RENAMED,
+      // not deleted) and put the new encrypted file in its place.
+      await dbFile.rename('$path.legacy_unencrypted_backup');
+      await File(tempPath).rename(path);
+
+      debugPrint('JavisAudit: database successfully migrated to encrypted storage.');
+    } catch (e) {
+      // Something went wrong — leave the original plaintext file
+      // completely untouched and let _initDatabase's normal
+      // openDatabase call below open it as-is. No data is at risk;
+      // encryption will simply be retried on the next app launch.
+      debugPrint('JavisAudit: encrypted-database migration skipped due to an '
+          'error (existing data is untouched and the app will continue '
+          'normally): $e');
+      try { await plainDb?.close(); } catch (_) {}
+      try { await newDb?.close(); } catch (_) {}
+    }
   }
 
   // ── _upgradeTables: schema migration for existing installs ─
@@ -1343,6 +1487,16 @@ class DatabaseHelper {
   // SyncService when pushing a snapshot to the cloud.
   Future<Map<String, dynamic>> exportAllData() async {
     final db = await database;
+    return _exportAllDataFrom(db);
+  }
+
+  // The actual export logic, taking an explicit `db` handle rather
+  // than going through the `database` getter. Needed so the
+  // encryption migration below (which runs INSIDE _initDatabase,
+  // before the singleton is assigned) can reuse this exact same,
+  // already-proven logic without triggering infinite recursion by
+  // calling back into `database`.
+  Future<Map<String, dynamic>> _exportAllDataFrom(Database db) async {
     // Fetch every row from every table
     final profile            = await db.query('business_profile');
     final income             = await db.query('income');
@@ -1377,7 +1531,12 @@ class DatabaseHelper {
   // Clear all tables and re-insert data from a backup JSON
   Future<void> restoreFromBackup(Map<String, dynamic> data) async {
     final db = await database;
+    await _restoreBackupInto(db, data);
+  }
 
+  // The actual restore logic, taking an explicit `db` handle — see
+  // _exportAllDataFrom above for why this split exists.
+  Future<void> _restoreBackupInto(Database db, Map<String, dynamic> data) async {
     // Use a transaction so either ALL data is restored
     // or NONE of it is (prevents partial/corrupt state)
     await db.transaction((txn) async {

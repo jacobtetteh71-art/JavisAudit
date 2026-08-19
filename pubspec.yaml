@@ -15,9 +15,20 @@ dependencies:
     sdk: flutter
 
   # ── Database ────────────────────────────────────────────────────────────────
-  # sqflite: the main SQLite plugin for Flutter
-  # Used to store all income, expense, sales, and profile records on-device
-  sqflite: ^2.3.3+1
+  # sqflite_sqlcipher: SQLite plugin, API-compatible fork of sqflite
+  # that adds at-rest encryption (SQLCipher) — used INSTEAD OF plain
+  # sqflite (never both: they register the same native plugin
+  # channel and would conflict). The database file holding every
+  # income, expense, sales, and profile record is now encrypted on
+  # disk, not just gated by the app's PIN screen. Version constraint
+  # kept below whatever requires Flutter 3.35+ (per its changelog),
+  # since this project's CI is intentionally pinned to Flutter 3.32.1.
+  sqflite_sqlcipher: '>=2.0.0 <4.0.0'
+
+  # flutter_secure_storage: stores the random database encryption key
+  # in the Android Keystore (hardware-backed on most devices) rather
+  # than anywhere the app's own SQLite/Hive storage could read it.
+  flutter_secure_storage: '>=9.0.0 <11.0.0'
 
   # path: helps build the correct file path to the database on different OS
   path: ^1.9.0

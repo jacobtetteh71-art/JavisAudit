@@ -23,6 +23,14 @@ import 'providers/auth_provider.dart';
 import 'providers/sync_provider.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
+import 'screens/lock_screen.dart';
+
+// ── Global navigator key ─────────────────────────────────────
+// Lets code that isn't inside any particular screen's build method
+// (like the app-lifecycle auto-lock in _MyAppState below) still push
+// a new screen and clear the navigation stack — the same thing
+// Navigator.of(context) does from inside a screen's own widget tree.
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // ── Global notification plugin instance ─────────────────────
 // We create it here (globally) so it can be accessed from
@@ -154,12 +162,85 @@ void _resetNotificationFlagsIfNewYear() {
 // ── MyApp Widget ─────────────────────────────────────────────
 // This is the root widget of the entire app.
 // It defines the app's theme, name, and starting screen.
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  // ── Auto-lock after the app has been backgrounded a while ────
+  // SECURITY FIX: before this, "logged in" only ever reset on a
+  // full app restart — so if someone picked up the phone while
+  // JavisAudit was just sitting in the recent-apps tray, they saw
+  // every business record with no PIN prompt at all. This closes
+  // that gap: a real `paused` (backgrounded) -> `resumed` round
+  // trip longer than _autoLockThreshold sends the owner back to the
+  // Lock Screen, same as a manual logout would.
+  //
+  // Deliberately keyed off `paused`, not `inactive` alone —
+  // `inactive` also fires for things that AREN'T actually leaving
+  // the app (a permission dialog, the brief app-switcher preview),
+  // and locking on those would just be annoying for no security
+  // benefit. Only a real trip to the background counts.
+  //
+  // 2 minutes is a starting point balancing "still protects a phone
+  // left on a counter for a bit" against "doesn't lock you out for
+  // briefly checking WhatsApp mid-entry" — easy to tune if it feels
+  // wrong in practice.
+  static const Duration _autoLockThreshold = Duration(minutes: 2);
+  DateTime? _backgroundedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _backgroundedAt = DateTime.now();
+      return;
+    }
+
+    if (state != AppLifecycleState.resumed) return;
+
+    final backgroundedAt = _backgroundedAt;
+    _backgroundedAt = null;
+    if (backgroundedAt == null) return; // resumed without ever having paused
+    if (DateTime.now().difference(backgroundedAt) < _autoLockThreshold) return;
+
+    final navContext = navigatorKey.currentContext;
+    if (navContext == null) return;
+
+    final auth = Provider.of<AuthProvider>(navContext, listen: false);
+    // Only act if the app was actually unlocked when it went to the
+    // background — if it was already showing the Lock Screen (or
+    // Onboarding, before any PIN is even set up), there's nothing to do.
+    if (!auth.isLoggedIn) return;
+
+    auth.logout();
+    navigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LockScreen()),
+      (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // Lets the auto-lock handler above navigate from outside any
+      // screen's own BuildContext — see the class comment.
+      navigatorKey: navigatorKey,
+
       // Name shown in the Android recent apps switcher
       title: 'JavisAudit',
 

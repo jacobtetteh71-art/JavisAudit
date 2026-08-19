@@ -87,6 +87,13 @@ android {
             signingConfig = signingConfigs.debug
             minifyEnabled = true
             shrinkResources = true
+            // REQUIRED by sqflite_sqlcipher (see proguard-rules.pro
+            // for why) now that minifyEnabled is on and the database
+            // is encrypted — without this, SQLCipher's native-bridge
+            // classes get stripped and the release APK crashes the
+            // first time it opens the database, even though debug
+            // builds (no shrinking) work fine.
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

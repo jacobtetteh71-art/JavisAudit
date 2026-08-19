@@ -41,7 +41,19 @@
     <application
         android:label="JavisAudit"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
+        <!-- allowBackup="false": without this, Android's default is
+             TRUE, which lets Auto Backup (to the owner's Google
+             account) or `adb backup` copy this app's entire private
+             storage off the device — including the unencrypted-at-
+             the-OS-level SQLite database — completely bypassing the
+             in-app PIN lock. Financial/business data has no business
+             leaving the device through a channel the app itself
+             never sees or controls. fullBackupContent="false" is
+             belt-and-braces for the same reason on API levels that
+             check it independently of allowBackup. -->
 
         <activity
             android:name=".MainActivity"
