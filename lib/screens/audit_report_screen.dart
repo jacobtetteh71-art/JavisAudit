@@ -119,11 +119,12 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
 
       // ── PAGE 1: Cover + Executive Summary ──────────────────
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
           footer: (context) => buildFooter(profile, context),
-          build: (context) => pw.Column(
+          build: (context) => [
+            pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text('JavisAudit',
@@ -160,13 +161,14 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
                   '${vatPercent.toStringAsFixed(1)}% of GHS 750,000'
                   '${turnover >= 750000 ? " — EXCEEDED" : ""}'),
             ],
-          ),
+            ),
+          ],
         ),
       );
 
       // ── PAGE 2: Monthly Breakdown Table ────────────────────
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
           footer: (context) => buildFooter(profile, context),
@@ -185,7 +187,8 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
                   .fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
             });
 
-            return pw.Column(
+            return [
+              pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text('Monthly Income & Expense Breakdown',
@@ -222,7 +225,8 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
                   ],
                 ),
               ],
-            );
+              ),
+            ];
           },
         ),
       );
@@ -313,11 +317,12 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
 
       // ── PAGE 5: Disclaimer ──────────────────────────────────
       pdf.addPage(
-        pw.Page(
+        pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(32),
           footer: (context) => buildFooter(profile, context),
-          build: (context) => pw.Column(
+          build: (context) => [
+            pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text('Disclaimer', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
@@ -333,7 +338,8 @@ class _AuditReportScreenState extends State<AuditReportScreen> {
                 style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
               ),
             ],
-          ),
+            ),
+          ],
         ),
       );
 

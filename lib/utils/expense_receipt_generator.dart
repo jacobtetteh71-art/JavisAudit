@@ -32,12 +32,13 @@ Future<void> shareExpenseReceipt({
   final receiptMethod = payment?.paymentMethod ?? expense.paymentMethod;
 
   pdf.addPage(
-    pw.Page(
+    pw.MultiPage(
       pageFormat: PdfPageFormat.a5,
       margin: const pw.EdgeInsets.all(28),
       footer: (context) => buildFooter(profile, context),
       build: (context) {
-        return pw.Column(
+        return [
+          pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             buildLetterhead(profile, 'Payment Receipt'),
@@ -107,7 +108,8 @@ Future<void> shareExpenseReceipt({
               style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
             ),
           ],
-        );
+          ),
+        ];
       },
     ),
   );

@@ -22,12 +22,13 @@ Future<void> shareSaleReceipt({
   final pdf = pw.Document();
 
   pdf.addPage(
-    pw.Page(
+    pw.MultiPage(
       pageFormat: PdfPageFormat.a5,
       margin: const pw.EdgeInsets.all(28),
       footer: (context) => buildFooter(profile, context),
       build: (context) {
-        return pw.Column(
+        return [
+          pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             buildLetterhead(profile, 'Sales Receipt'),
@@ -96,7 +97,8 @@ Future<void> shareSaleReceipt({
             pw.Text('Thank you for your business!',
                 style: pw.TextStyle(fontSize: 11, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
           ],
-        );
+          ),
+        ];
       },
     ),
   );
@@ -130,12 +132,13 @@ Future<void> shareGroupedSaleReceipt({
   final pdf = pw.Document();
 
   pdf.addPage(
-    pw.Page(
+    pw.MultiPage(
       pageFormat: PdfPageFormat.a5,
       margin: const pw.EdgeInsets.all(28),
       footer: (context) => buildFooter(profile, context),
       build: (context) {
-        return pw.Column(
+        return [
+          pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             buildLetterhead(profile, 'Sales Receipt'),
@@ -201,7 +204,8 @@ Future<void> shareGroupedSaleReceipt({
             pw.Text('Thank you for your business!',
                 style: pw.TextStyle(fontSize: 11, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
           ],
-        );
+          ),
+        ];
       },
     ),
   );

@@ -33,7 +33,17 @@ android {
     // is unaffected: this only changes what SDK the app is COMPILED
     // against, not the oldest Android version it can RUN on.
     compileSdk = 35
-    ndkVersion = flutter.ndkVersion
+    // Pinned explicitly (rather than left at the Flutter default)
+    // because every plugin in this project — cloud_firestore,
+    // firebase_auth/core, connectivity_plus, file_picker,
+    // flutter_local_notifications, image_picker, path_provider,
+    // printing, share_plus, sqflite — declares this as the NDK
+    // version it needs. Flutter's default lagged behind that,
+    // producing a build-time warning (harmless on its own, but
+    // worth silencing per the exact fix Flutter's own tooling
+    // suggests: NDKs are backward compatible, so pinning to the
+    // highest version any plugin asks for satisfies all of them).
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
