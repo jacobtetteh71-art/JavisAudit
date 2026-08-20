@@ -753,13 +753,22 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
   }
 
   // ── One line item's fields ───────────────────────────────────
+  // Deliberately compact: with several product slots stacked on
+  // screen at once (the whole point of "Add Another Item"), every
+  // extra line of helper text or an extra field-row here gets
+  // multiplied by however many items are in the sale. Quantity,
+  // Unit Price, and Unit Cost Price now share one row instead of
+  // two, and helper text is trimmed to a single line — together
+  // that's roughly two fewer field-heights per slot than before,
+  // without dropping any functionality (inventory linking, the
+  // locked cost price display, live line totals — all still here).
   Widget _buildLineItem(int index) {
     final line = _lines[index];
     final isLinked = line.selectedInventoryItem != null;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppColors.background,
         borderRadius: BorderRadius.circular(10),
@@ -774,21 +783,27 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                 child: Text('Item ${index + 1}',
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
               ),
+              Text('Line total: ${AppFormat.currency(line.total)}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
               if (_lines.length > 1)
                 IconButton(
                   visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.only(left: 4),
+                  constraints: const BoxConstraints(),
                   icon: const Icon(Icons.close, size: 18, color: AppColors.expense),
                   onPressed: () => _removeLine(index),
                 ),
             ],
           ),
+          const SizedBox(height: 8),
           if (_inventoryItems.isNotEmpty) ...[
             DropdownButtonFormField<InventoryItem>(
               value: line.selectedInventoryItem,
+              isDense: true,
               decoration: const InputDecoration(
                 labelText: 'Link to Inventory Item (optional)', border: OutlineInputBorder(),
-                helperText: 'Auto-fills the item, price, and cost — and reduces stock on save.',
-                helperMaxLines: 2,
+                helperText: 'Auto-fills item, price & cost.',
+                isDense: true,
               ),
               items: _inventoryItems
                   .map((i) => DropdownMenuItem(
@@ -807,90 +822,86 @@ class _AddSaleSheetState extends State<_AddSaleSheet> {
                 });
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
           ],
 
           TextFormField(
             controller: line.itemCtrl,
             decoration: const InputDecoration(
               labelText: 'Item / Service *', hintText: 'e.g., 2 yards of Ankara fabric',
-              border: OutlineInputBorder(),
+              border: OutlineInputBorder(), isDense: true,
             ),
             validator: (val) {
               if (val == null || val.trim().length < 2) return 'Enter the item or service sold';
               return null;
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
+          // Quantity, Unit Price, and Unit Cost Price share one row
+          // — this used to be two stacked rows.
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: TextFormField(
                   controller: line.quantityCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Quantity *', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Qty *', border: OutlineInputBorder(), isDense: true),
                   validator: (val) {
                     final q = int.tryParse(val ?? '');
-                    if (q == null || q <= 0) return 'Must be > 0';
+                    if (q == null || q <= 0) return '>0';
                     return null;
                   },
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: TextFormField(
                   controller: line.unitPriceCtrl,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
-                      labelText: 'Unit Price *', prefixText: 'GH₵ ', border: OutlineInputBorder()),
+                      labelText: 'Price *', prefixText: 'GH₵', border: OutlineInputBorder(), isDense: true),
                   validator: (val) {
                     final p = double.tryParse(val ?? '');
-                    if (p == null || p <= 0) return 'Must be > 0';
+                    if (p == null || p <= 0) return '>0';
                     return null;
                   },
                 ),
               ),
+              const SizedBox(width: 8),
+              // Unit cost price: locked once an inventory item is
+              // linked — the only place to change it is Inventory ▸
+              // Edit Prices, so every price change is captured in
+              // one audit trail.
+              Expanded(
+                child: isLinked
+                    ? InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Cost', border: OutlineInputBorder(), isDense: true,
+                          filled: true, fillColor: Color(0xFFF0F0F0),
+                        ),
+                        child: Text(
+                          AppFormat.currency(double.tryParse(line.costPriceCtrl.text) ?? 0),
+                          style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )
+                    : TextFormField(
+                        controller: line.costPriceCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Cost', prefixText: 'GH₵', border: OutlineInputBorder(), isDense: true,
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) return null;
+                          final p = double.tryParse(val);
+                          if (p == null || p < 0) return 'Invalid';
+                          return null;
+                        },
+                      ),
+              ),
             ],
-          ),
-          const SizedBox(height: 12),
-
-          // Unit cost price: locked once an inventory item is linked
-          // — the only place to change it is Inventory ▸ Edit Prices,
-          // so every price change is captured in one audit trail.
-          isLinked
-              ? InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Unit Cost Price', border: OutlineInputBorder(),
-                    helperText: 'From Inventory — edit it there, not here.',
-                    helperMaxLines: 2,
-                    filled: true, fillColor: Color(0xFFF0F0F0),
-                  ),
-                  child: Text(
-                    AppFormat.currency(double.tryParse(line.costPriceCtrl.text) ?? 0),
-                    style: const TextStyle(color: AppColors.textMuted),
-                  ),
-                )
-              : TextFormField(
-                  controller: line.costPriceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Unit Cost Price (optional)', prefixText: 'GH₵ ', border: OutlineInputBorder(),
-                    helperText: 'What this item cost you — powers gross profit tracking.',
-                    helperMaxLines: 2,
-                  ),
-                  validator: (val) {
-                    if (val == null || val.trim().isEmpty) return null;
-                    final p = double.tryParse(val);
-                    if (p == null || p < 0) return 'Enter a valid cost, or leave blank';
-                    return null;
-                  },
-                ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text('Line total: ${AppFormat.currency(line.total)}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
           ),
         ],
       ),
