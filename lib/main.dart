@@ -17,6 +17,7 @@ import 'database/database_helper.dart';
 import 'providers/income_provider.dart';
 import 'providers/expense_provider.dart';
 import 'providers/sales_provider.dart';
+import 'providers/invoice_provider.dart';
 import 'providers/vat_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/auth_provider.dart';
@@ -121,6 +122,9 @@ Future<void> main() async {
 
         // SalesProvider: manages all sales records
         ChangeNotifierProvider(create: (_) => SalesProvider()),
+
+        // InvoiceProvider: manages Invoices and Pro-forma Invoices
+        ChangeNotifierProvider(create: (_) => InvoiceProvider()),
 
         // VatProvider: calculates annual turnover and fires
         // VAT threshold notifications

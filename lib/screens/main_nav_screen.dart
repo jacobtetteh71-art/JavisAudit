@@ -40,6 +40,7 @@ import 'lock_screen.dart';
 import 'reports_screen.dart';
 import 'sales_performance_screen.dart';
 import 'sales_screen.dart';
+import 'invoices_screen.dart';
 import 'settings_screen.dart';
 import 'sync_screen.dart';
 import 'vat_tracker_screen.dart';
@@ -139,6 +140,11 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
                     _sectionHeader('RECORD'),
                     ..._tabTiles(1, 4),
+                    _navTile(
+                      icon: Icons.receipt_long_outlined,
+                      label: 'Invoices',
+                      onTap: () => _pushScreen(const InvoicesScreen()),
+                    ),
 
                     _sectionHeader('INVENTORY & CUSTOMERS'),
                     _navTile(

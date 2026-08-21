@@ -99,7 +99,7 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       password: password,
-      version: 12,
+      version: 14,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -179,7 +179,7 @@ class DatabaseHelper {
       // Build the new encrypted database at a temporary path first.
       final tempPath = '$path.encrypting_tmp';
       if (await File(tempPath).exists()) await File(tempPath).delete();
-      newDb = await openDatabase(tempPath, password: password, version: 12, onCreate: _createTables);
+      newDb = await openDatabase(tempPath, password: password, version: 14, onCreate: _createTables);
       await _restoreBackupInto(newDb, exported);
       await newDb.close();
       newDb = null;
@@ -416,6 +416,54 @@ class DatabaseHelper {
       // nothing else about the `expenses` table changes.
       await db.execute('ALTER TABLE expenses ADD COLUMN tax_preset_key TEXT');
     }
+
+    if (oldVersion < 13) {
+      // Adds a free-text "how customers should pay you" field
+      // (Mobile Money number, bank details, etc.) to the business
+      // profile — shown on Invoices, which request a FUTURE
+      // payment, unlike a Sales receipt which records one already
+      // made. Nullable and additive; existing profiles just have no
+      // payment details until the owner fills them in.
+      await db.execute('ALTER TABLE business_profile ADD COLUMN payment_details TEXT');
+    }
+
+    if (oldVersion < 14) {
+      // New tables for Invoices and Pro-forma Invoices. One shared
+      // table (documentType distinguishes the two) since they're
+      // ~95% identical in structure — see models.dart's Invoice
+      // class for the full field-by-field rationale.
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS invoices (
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          document_type     TEXT    NOT NULL,
+          invoice_number    TEXT    NOT NULL,
+          date              TEXT    NOT NULL,
+          due_date          TEXT,
+          customer_name     TEXT    NOT NULL,
+          customer_phone    TEXT,
+          customer_address  TEXT,
+          notes             TEXT,
+          status            TEXT    NOT NULL DEFAULT 'Draft',
+          total_amount      REAL    NOT NULL DEFAULT 0,
+          sale_group_id     TEXT,
+          converted_to_invoice_id INTEGER,
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS invoice_items (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          invoice_id    INTEGER NOT NULL,
+          description   TEXT    NOT NULL,
+          quantity      INTEGER NOT NULL,
+          unit_price    REAL    NOT NULL,
+          line_total    REAL    NOT NULL,
+          FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
+        )
+      ''');
+      await _createSyncMetaAndTriggers(db);
+    }
   }
 
   // ── inventory_change_log ─────────────────────────────────────
@@ -466,6 +514,8 @@ class DatabaseHelper {
     'customers',
     'inventory_change_log',
     'settings',
+    'invoices',
+    'invoice_items',
   ];
 
   // ── _createSyncMetaAndTriggers ───────────────────────────────
@@ -539,6 +589,7 @@ class DatabaseHelper {
         location            TEXT,
         gra_tin             TEXT,
         vat_number          TEXT,
+        payment_details     TEXT,
         profile_image_path  TEXT,
         created_at          TEXT    NOT NULL,
         updated_at          TEXT
@@ -730,7 +781,43 @@ class DatabaseHelper {
       )
     ''');
 
-    // ── Table 10: sync_meta + change-tracking triggers ────────
+    // ── Table 10a: invoices / pro-forma invoices ─────────────
+    // One shared table for both document types — see the Invoice
+    // model class for the full field-by-field rationale.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoices (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_type     TEXT    NOT NULL,
+        invoice_number    TEXT    NOT NULL,
+        date              TEXT    NOT NULL,
+        due_date          TEXT,
+        customer_name     TEXT    NOT NULL,
+        customer_phone    TEXT,
+        customer_address  TEXT,
+        notes             TEXT,
+        status            TEXT    NOT NULL DEFAULT 'Draft',
+        total_amount      REAL    NOT NULL DEFAULT 0,
+        sale_group_id     TEXT,
+        converted_to_invoice_id INTEGER,
+        created_at        TEXT    NOT NULL,
+        updated_at         TEXT
+      )
+    ''');
+
+    // ── Table 10b: invoice_items — one row per line item ─────
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_items (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id    INTEGER NOT NULL,
+        description   TEXT    NOT NULL,
+        quantity      INTEGER NOT NULL,
+        unit_price    REAL    NOT NULL,
+        line_total    REAL    NOT NULL,
+        FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // ── Table 11: sync_meta + change-tracking triggers ────────
     // See _createSyncMetaAndTriggers for the full explanation.
     // inventory_change_log is created FIRST so the trigger-creation
     // loop inside _createSyncMetaAndTriggers finds it already there.
@@ -1520,6 +1607,8 @@ class DatabaseHelper {
     final customers          = await db.query('customers');
     final inventoryChangeLog = await db.query('inventory_change_log');
     final settings           = await db.query('settings');
+    final invoices           = await db.query('invoices');
+    final invoiceItems       = await db.query('invoice_items');
 
     // Return as a nested map — easy to convert to JSON
     return {
@@ -1534,6 +1623,8 @@ class DatabaseHelper {
       'customers': customers,
       'inventory_change_log': inventoryChangeLog,
       'settings': settings,
+      'invoices': invoices,
+      'invoice_items': invoiceItems,
       'exported_at': DateTime.now().toIso8601String(),
       'app_version': '1.1.0',
     };
@@ -1553,6 +1644,8 @@ class DatabaseHelper {
     await db.transaction((txn) async {
       // Wipe all existing data — children before parents, so
       // foreign key references never dangle mid-transaction
+      await txn.delete('invoice_items');
+      await txn.delete('invoices');
       await txn.delete('expense_payments');
       await txn.delete('sale_payments');
       await txn.delete('sales');
@@ -1579,6 +1672,8 @@ class DatabaseHelper {
       final List customers            = data['customers'] ?? [];
       final List inventoryChangeLog   = data['inventory_change_log'] ?? [];
       final List settings             = data['settings'] ?? [];
+      final List invoices             = data['invoices'] ?? [];
+      final List invoiceItems         = data['invoice_items'] ?? [];
 
       // Parents first, then anything that can reference them, so
       // this stays safe even if FK enforcement is ever turned on.
@@ -1593,6 +1688,8 @@ class DatabaseHelper {
       for (var row in expensePayments)    await txn.insert('expense_payments', Map<String, dynamic>.from(row));
       for (var row in salePayments)       await txn.insert('sale_payments', Map<String, dynamic>.from(row));
       for (var row in inventoryChangeLog) await txn.insert('inventory_change_log', Map<String, dynamic>.from(row));
+      for (var row in invoices)           await txn.insert('invoices', Map<String, dynamic>.from(row));
+      for (var row in invoiceItems)       await txn.insert('invoice_items', Map<String, dynamic>.from(row));
     });
   }
 
@@ -1603,6 +1700,8 @@ class DatabaseHelper {
   Future<void> deleteAllData() async {
     final db = await database;
     await db.transaction((txn) async {
+      await txn.delete('invoice_items');
+      await txn.delete('invoices');
       await txn.delete('sale_payments');
       await txn.delete('sales');
       await txn.delete('expense_payments');
@@ -1762,5 +1861,72 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [existing.first['id']],
     );
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // INVOICE / PRO-FORMA INVOICE METHODS
+  // ══════════════════════════════════════════════════════════
+
+  // Every invoice + pro-forma, newest first.
+  Future<List<Map<String, dynamic>>> getAllInvoices() async {
+    final db = await database;
+    return await db.query('invoices', orderBy: 'created_at DESC');
+  }
+
+  Future<List<Map<String, dynamic>>> getInvoiceItems(int invoiceId) async {
+    final db = await database;
+    return await db.query('invoice_items', where: 'invoice_id = ?', whereArgs: [invoiceId]);
+  }
+
+  // Generates the next number in sequence for a given document type
+  // — e.g. the 3rd Invoice ever created becomes "INV-0003", the 3rd
+  // Pro-forma becomes "PF-0003". Counts existing rows of that type
+  // rather than keeping a separate counter, so it self-corrects even
+  // if a row was ever deleted or restored from a backup.
+  Future<String> generateNextInvoiceNumber(String documentType) async {
+    final db = await database;
+    final prefix = documentType == 'Proforma' ? 'PF' : 'INV';
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM invoices WHERE document_type = ?',
+      [documentType],
+    );
+    final count = (result.first['count'] as int?) ?? 0;
+    return '$prefix-${(count + 1).toString().padLeft(4, '0')}';
+  }
+
+  // Inserts one invoice/pro-forma plus all of its line items in a
+  // single transaction — either the whole document is saved, or
+  // none of it is (never a header with no line items, or vice versa).
+  Future<int> insertInvoiceWithItems(
+    Map<String, dynamic> invoice,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final db = await database;
+    return await db.transaction((txn) async {
+      final invoiceId = await txn.insert('invoices', invoice);
+      for (final item in items) {
+        await txn.insert('invoice_items', {...item, 'invoice_id': invoiceId});
+      }
+      return invoiceId;
+    });
+  }
+
+  Future<int> updateInvoice(int id, Map<String, dynamic> invoice) async {
+    final db = await database;
+    return await db.update('invoices', invoice, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // Deletes an invoice AND its line items explicitly, rather than
+  // relying on the ON DELETE CASCADE declared in the schema — this
+  // codebase never turns SQLite's foreign-key enforcement on (see
+  // the same note wherever else CASCADE is declared), so the
+  // cascade alone would silently leave orphaned invoice_items rows
+  // behind. Doing it explicitly here means it's correct either way.
+  Future<void> deleteInvoice(int id) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('invoice_items', where: 'invoice_id = ?', whereArgs: [id]);
+      await txn.delete('invoices', where: 'id = ?', whereArgs: [id]);
+    });
   }
 }

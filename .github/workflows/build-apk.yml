@@ -51,6 +51,43 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # 5b. Restore (or start) a STABLE debug keystore, cached across
+      #     every run by a fixed key (not tied to this run's ID) —
+      #     so it's the exact same key every single build, not a
+      #     fresh random one each time. This is what actually fixes
+      #     "App not installed as package conflicts with an existing
+      #     package": a GitHub Actions runner is a brand-new machine
+      #     every run, so without this, Android's default debug
+      #     keystore location (~/.android/debug.keystore) would get a
+      #     freshly regenerated random key on every build, and Android
+      #     refuses to install an "update" signed with a different key
+      #     than what's already on the phone. Only matters for builds
+      #     WITHOUT a real release keystore configured below — once
+      #     you set one up via SIGNING_SETUP.md, that takes over and
+      #     this cache becomes irrelevant.
+      - name: Restore stable debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: stable-debug-keystore-v1
+
+      # 5c. If you've set up a real release keystore (see
+      #     SIGNING_SETUP.md), decode it from GitHub Secrets and write
+      #     android/key.properties — build.gradle picks this up
+      #     automatically and signs with it instead of the debug key.
+      #     A no-op (every step below just skips) until those secrets
+      #     exist, so this is safe to leave in either way.
+      - name: Configure release signing (if secrets are set)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release-key.jks
+          cat > android/key.properties <<EOF
+          storeFile=release-key.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
       # 6. Static analysis pass — won't fail the build, just reports issues in the log
       - name: Analyze project (non-blocking)
         run: flutter analyze || true

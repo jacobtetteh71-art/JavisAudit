@@ -35,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _locationCtrl;
   late TextEditingController _graTinCtrl;
   late TextEditingController _vatNumberCtrl;
+  late TextEditingController _paymentDetailsCtrl;
 
   String? _selectedBusinessType;
   bool _isSaving = false;
@@ -55,6 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _locationCtrl     = TextEditingController(text: profile?.location ?? '');
     _graTinCtrl       = TextEditingController(text: profile?.graTin ?? '');
     _vatNumberCtrl    = TextEditingController(text: profile?.vatNumber ?? '');
+    _paymentDetailsCtrl = TextEditingController(text: profile?.paymentDetails ?? '');
     _selectedBusinessType = profile?.businessType;
 
     // Business/owner contact details, GRA TIN, and VAT number are
@@ -83,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _locationCtrl.dispose();
     _graTinCtrl.dispose();
     _vatNumberCtrl.dispose();
+    _paymentDetailsCtrl.dispose();
     super.dispose();
   }
 
@@ -115,6 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       location:     _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
       graTin:       _graTinCtrl.text.trim().isEmpty ? null : _graTinCtrl.text.trim(),
       vatNumber:    _vatNumberCtrl.text.trim().isEmpty ? null : _vatNumberCtrl.text.trim(),
+      paymentDetails: _paymentDetailsCtrl.text.trim().isEmpty ? null : _paymentDetailsCtrl.text.trim(),
       // Preserve the original creation timestamp — only updatedAt changes
       createdAt:    existingProfile?.createdAt ?? DateTime.now().toIso8601String(),
     );
@@ -266,6 +270,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 textCapitalization: TextCapitalization.characters,
                 decoration: const InputDecoration(
                   labelText: 'VAT Number (if registered)', border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _paymentDetailsCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Details (for Invoices)',
+                  hintText: 'e.g., MTN MoMo: 024-XXX-XXXX (Business Name)',
+                  border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 20),

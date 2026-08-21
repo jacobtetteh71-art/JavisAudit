@@ -600,6 +600,13 @@ class BusinessProfile {
   final String? location;
   final String? graTin;
   final String? vatNumber;
+  // How customers should pay you — shown on Invoices (which request
+  // future payment) so the recipient knows where to send it. Free-
+  // text and optional on purpose: Ghanaian MSEs pay through very
+  // different channels (Mobile Money, bank transfer, cash on
+  // delivery), so one flexible field beats a rigid bank-only or
+  // momo-only form.
+  final String? paymentDetails;
   final String? profileImagePath; // Local file path to the chosen profile picture
   final String createdAt;
   final String? updatedAt;
@@ -614,6 +621,7 @@ class BusinessProfile {
     this.location,
     this.graTin,
     this.vatNumber,
+    this.paymentDetails,
     this.profileImagePath,
     required this.createdAt,
     this.updatedAt,
@@ -630,6 +638,7 @@ class BusinessProfile {
       location:         map['location'] as String?,
       graTin:           map['gra_tin'] as String?,
       vatNumber:        map['vat_number'] as String?,
+      paymentDetails:   map['payment_details'] as String?,
       profileImagePath: map['profile_image_path'] as String?,
       createdAt:        map['created_at'] as String,
       updatedAt:        map['updated_at'] as String?,
@@ -646,6 +655,7 @@ class BusinessProfile {
       'location':           location,
       'gra_tin':            graTin,
       'vat_number':         vatNumber,
+      'payment_details':    paymentDetails,
       'profile_image_path': profileImagePath,
       'created_at':         createdAt,
       'updated_at':         updatedAt,
@@ -665,6 +675,7 @@ class BusinessProfile {
       location: location,
       graTin: graTin,
       vatNumber: vatNumber,
+      paymentDetails: paymentDetails,
       profileImagePath: profileImagePath ?? this.profileImagePath,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -756,6 +767,155 @@ class InventoryChangeLog {
       'new_value':         newValue,
       'reason':            reason,
       'changed_at':        changedAt,
+    };
+  }
+}
+
+// ============================================================
+// models/invoice.dart  –  Invoice & Pro-forma Invoice
+// ============================================================
+// One shared model for both document types — an Invoice (a real
+// bill requesting payment, tracked with a status until it's paid)
+// and a Pro-forma Invoice (a quote/estimate that never affects the
+// books at all, since nothing has actually been sold or billed yet).
+// `documentType` is the only thing that distinguishes them; every
+// other field means the same thing on either one.
+//
+// IMPORTANT — this deliberately does NOT touch Income, Sales, or
+// Inventory just by being created. Ghanaian MSEs record actual
+// income when money is RECEIVED, not when a bill is sent — so an
+// Invoice sits here with its own status (Draft/Sent/Paid/Overdue/
+// Cancelled) until the owner explicitly marks it Paid, which is
+// what creates the matching Sale + Income entries (see
+// InvoiceProvider.markAsPaid). A Pro-forma's possible statuses are
+// Draft/Sent/Converted/Cancelled — it never becomes "Paid" itself;
+// "Converted" means one tap turned it into a real Invoice (see
+// InvoiceProvider.convertToInvoice), which then follows the normal
+// Invoice lifecycle on its own.
+class Invoice {
+  final int? id;
+  final String documentType; // 'Invoice' | 'Proforma'
+  final String invoiceNumber; // e.g. 'INV-0001' / 'PF-0001'
+  final String date;
+  final String? dueDate; // only meaningful for 'Invoice'
+  final String customerName;
+  final String? customerPhone;
+  final String? customerAddress;
+  final String? notes; // terms/notes shown on the printed document
+  final String status;
+  // Denormalized sum of this invoice's line items — same pattern as
+  // Sale.totalAmount, stored rather than recomputed so list screens
+  // don't need a per-row lookup of every line item.
+  final double totalAmount;
+  // Set once "Mark as Paid" creates the matching Sale(s) — lets the
+  // invoice detail screen link straight to them.
+  final String? saleGroupId;
+  // Set on a Proforma once "Convert to Invoice" has been used —
+  // points at the new Invoice's id, and this Proforma's own status
+  // becomes 'Converted' so it's clearly not the active document anymore.
+  final int? convertedToInvoiceId;
+  final String createdAt;
+  final String? updatedAt;
+
+  const Invoice({
+    this.id,
+    required this.documentType,
+    required this.invoiceNumber,
+    required this.date,
+    this.dueDate,
+    required this.customerName,
+    this.customerPhone,
+    this.customerAddress,
+    this.notes,
+    this.status = 'Draft',
+    this.totalAmount = 0,
+    this.saleGroupId,
+    this.convertedToInvoiceId,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  bool get isProforma => documentType == 'Proforma';
+
+  factory Invoice.fromMap(Map<String, dynamic> map) {
+    return Invoice(
+      id:               map['id'] as int?,
+      documentType:     map['document_type'] as String,
+      invoiceNumber:    map['invoice_number'] as String,
+      date:             map['date'] as String,
+      dueDate:          map['due_date'] as String?,
+      customerName:     map['customer_name'] as String,
+      customerPhone:    map['customer_phone'] as String?,
+      customerAddress:  map['customer_address'] as String?,
+      notes:            map['notes'] as String?,
+      status:           map['status'] as String? ?? 'Draft',
+      totalAmount:      (map['total_amount'] as num?)?.toDouble() ?? 0,
+      saleGroupId:      map['sale_group_id'] as String?,
+      convertedToInvoiceId: map['converted_to_invoice_id'] as int?,
+      createdAt:        map['created_at'] as String,
+      updatedAt:        map['updated_at'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'document_type':    documentType,
+      'invoice_number':   invoiceNumber,
+      'date':             date,
+      'due_date':         dueDate,
+      'customer_name':    customerName,
+      'customer_phone':   customerPhone,
+      'customer_address': customerAddress,
+      'notes':            notes,
+      'status':           status,
+      'total_amount':     totalAmount,
+      'sale_group_id':    saleGroupId,
+      'converted_to_invoice_id': convertedToInvoiceId,
+      'created_at':       createdAt,
+      'updated_at':       updatedAt,
+    };
+  }
+
+  // Statuses an Invoice can move through.
+  static const List<String> invoiceStatuses = ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled'];
+  // Statuses a Pro-forma can move through — no 'Paid': see class comment.
+  static const List<String> proformaStatuses = ['Draft', 'Sent', 'Converted', 'Cancelled'];
+}
+
+class InvoiceItem {
+  final int? id;
+  final int? invoiceId;
+  final String description;
+  final int quantity;
+  final double unitPrice;
+  final double lineTotal;
+
+  const InvoiceItem({
+    this.id,
+    this.invoiceId,
+    required this.description,
+    required this.quantity,
+    required this.unitPrice,
+    required this.lineTotal,
+  });
+
+  factory InvoiceItem.fromMap(Map<String, dynamic> map) {
+    return InvoiceItem(
+      id:          map['id'] as int?,
+      invoiceId:   map['invoice_id'] as int?,
+      description: map['description'] as String,
+      quantity:    map['quantity'] as int,
+      unitPrice:   (map['unit_price'] as num).toDouble(),
+      lineTotal:   (map['line_total'] as num).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'description': description,
+      'quantity':    quantity,
+      'unit_price':  unitPrice,
+      'line_total':  lineTotal,
     };
   }
 }

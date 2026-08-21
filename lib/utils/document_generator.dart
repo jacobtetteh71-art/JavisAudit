@@ -68,6 +68,17 @@ pw.Widget buildLetterhead(BusinessProfile? profile, String documentTitle) {
                   pw.Text('Owner: ${profile.ownerName}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                 if (profile?.phone != null && profile!.phone!.isNotEmpty)
                   pw.Text('Tel: ${profile.phone}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                if (profile?.email != null && profile!.email!.isNotEmpty)
+                  pw.Text(profile.email!, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                if ((profile?.graTin != null && profile!.graTin!.isNotEmpty) ||
+                    (profile?.vatNumber != null && profile!.vatNumber!.isNotEmpty))
+                  pw.Text(
+                    [
+                      if (profile?.graTin != null && profile!.graTin!.isNotEmpty) 'TIN: ${profile.graTin}',
+                      if (profile?.vatNumber != null && profile!.vatNumber!.isNotEmpty) 'VAT: ${profile.vatNumber}',
+                    ].join('   '),
+                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                  ),
               ],
             ),
           ),
@@ -81,6 +92,37 @@ pw.Widget buildLetterhead(BusinessProfile? profile, String documentTitle) {
       pw.Divider(thickness: 1.2, color: PdfColors.grey800),
       pw.SizedBox(height: 10),
     ],
+  );
+}
+
+// A "how to pay" block — Mobile Money / bank details the business
+// owner entered in their profile. Deliberately NOT part of
+// buildLetterhead above: it's only relevant to documents that
+// request a FUTURE payment (an Invoice), not ones recording a
+// payment that's already happened (a Sales/Expense receipt) — so
+// each document type opts in explicitly by calling this separately.
+// Returns an empty, zero-height widget if the owner hasn't filled
+// this in yet, so callers can include it unconditionally.
+pw.Widget buildPaymentDetailsBlock(BusinessProfile? profile) {
+  final details = profile?.paymentDetails;
+  if (details == null || details.trim().isEmpty) return pw.SizedBox();
+
+  return pw.Container(
+    margin: const pw.EdgeInsets.only(top: 12),
+    padding: const pw.EdgeInsets.all(10),
+    decoration: pw.BoxDecoration(
+      color: PdfColors.grey100,
+      border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+    ),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text('Payment Details', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 2),
+        pw.Text(details, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey800)),
+      ],
+    ),
   );
 }
 
