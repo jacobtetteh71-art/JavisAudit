@@ -99,7 +99,7 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       password: password,
-      version: 11,
+      version: 12,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -179,7 +179,7 @@ class DatabaseHelper {
       // Build the new encrypted database at a temporary path first.
       final tempPath = '$path.encrypting_tmp';
       if (await File(tempPath).exists()) await File(tempPath).delete();
-      newDb = await openDatabase(tempPath, password: password, version: 11, onCreate: _createTables);
+      newDb = await openDatabase(tempPath, password: password, version: 12, onCreate: _createTables);
       await _restoreBackupInto(newDb, exported);
       await newDb.close();
       newDb = null;
@@ -406,6 +406,16 @@ class DatabaseHelper {
       // duplicate anything already set up for the other tables.
       await _createSyncMetaAndTriggers(db);
     }
+
+    if (oldVersion < 12) {
+      // Adds an optional tag to each expense identifying WHICH
+      // specific Ghanaian tax/levy it is (e.g. "Income Tax — MTS",
+      // "Business Operating Permit"), separate from the existing
+      // free-text `category` field. Nullable and additive — existing
+      // expenses simply have no tag until the owner sets one, and
+      // nothing else about the `expenses` table changes.
+      await db.execute('ALTER TABLE expenses ADD COLUMN tax_preset_key TEXT');
+    }
   }
 
   // ── inventory_change_log ─────────────────────────────────────
@@ -572,7 +582,8 @@ class DatabaseHelper {
         cheque_account_name   TEXT,
         cheque_number         TEXT,
         cheque_image_path     TEXT,
-        created_at     TEXT    NOT NULL
+        created_at     TEXT    NOT NULL,
+        tax_preset_key TEXT
       )
     ''');
 

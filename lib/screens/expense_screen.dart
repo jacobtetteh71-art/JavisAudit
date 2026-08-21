@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/utils.dart';
+import '../utils/ghana_tax_presets.dart';
 import '../utils/expense_receipt_generator.dart';
 import '../widgets/cheque_details_fields.dart';
 import 'recurring_expense_templates_screen.dart';
@@ -338,6 +339,12 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
   bool _isSaving = false;
   final _chequeDetails = ChequeDetailsController();
 
+  // Which specific Ghanaian tax/levy this is, if the category is
+  // "Taxes & Levies" (or the owner wants to tag it under any other
+  // category too — the dropdown itself only appears for "Taxes &
+  // Levies", the most common home for these).
+  String? _selectedTaxPresetKey;
+
   @override
   void dispose() {
     _amountCtrl.dispose();
@@ -403,6 +410,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
       chequeNumber:        chequeMap['cheque_number'],
       chequeImagePath:     _chequeDetails.imagePath,
       createdAt:     DateTime.now().toIso8601String(),
+      taxPresetKey:  _selectedCategory == 'Taxes & Levies' ? _selectedTaxPresetKey : null,
     );
 
     final success = await context.read<ExpenseProvider>().addExpense(expense);
@@ -504,8 +512,55 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
                   value: _selectedCategory,
                   decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
                   items: Expense.categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                  onChanged: (val) => setState(() => _selectedCategory = val),
+                  onChanged: (val) => setState(() {
+                    _selectedCategory = val;
+                    // Switching away from "Taxes & Levies" clears any
+                    // tax tag — it wouldn't make sense attached to,
+                    // say, "Rent / Lease".
+                    if (val != 'Taxes & Levies') _selectedTaxPresetKey = null;
+                  }),
                 ),
+
+                // Which specific tax/levy this is — only shown for the
+                // "Taxes & Levies" category. The business's own
+                // business type (from its profile) determines which
+                // presets are suggested first, but every preset from
+                // every sector is still one scroll away, since a
+                // single expense doesn't have to match the business's
+                // usual category.
+                if (_selectedCategory == 'Taxes & Levies') ...[
+                  const SizedBox(height: 12),
+                  Builder(builder: (context) {
+                    final businessType = context.watch<ProfileProvider>().profile?.businessType;
+                    final presets = GhanaTaxPresets.presetsForBusinessType(businessType);
+                    return DropdownButtonFormField<String>(
+                      value: _selectedTaxPresetKey,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Which tax/levy? (optional)',
+                        border: OutlineInputBorder(),
+                        helperText: 'Helps break "Taxes & Levies" down accurately in your reports.',
+                        helperMaxLines: 2,
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('Not specified')),
+                        for (final preset in presets)
+                          DropdownMenuItem(
+                            value: preset.key,
+                            child: Text(preset.label, overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (val) => setState(() => _selectedTaxPresetKey = val),
+                    );
+                  }),
+                  if (_selectedTaxPresetKey != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      GhanaTaxPresets.byKey(_selectedTaxPresetKey)?.note ?? '',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                    ),
+                  ],
+                ],
                 const SizedBox(height: 12),
 
                 DropdownButtonFormField<String>(

@@ -120,6 +120,11 @@ class Expense {
   final String? chequeNumber;
   final String? chequeImagePath;
   final String createdAt;
+  // Optional: which specific Ghanaian tax/levy this expense is, from
+  // GhanaTaxPresets — separate from `category` (which stays the
+  // broad "Taxes & Levies" bucket). Null means not tagged, which is
+  // fine — this is an optional refinement, not a requirement.
+  final String? taxPresetKey;
 
   const Expense({
     this.id,
@@ -136,6 +141,7 @@ class Expense {
     this.chequeNumber,
     this.chequeImagePath,
     required this.createdAt,
+    this.taxPresetKey,
   });
 
   // How much of this expense is still owed. Never negative, even if
@@ -158,6 +164,7 @@ class Expense {
       chequeNumber:        map['cheque_number'] as String?,
       chequeImagePath:     map['cheque_image_path'] as String?,
       createdAt:     map['created_at'] as String,
+      taxPresetKey:  map['tax_preset_key'] as String?,
     );
   }
 
@@ -176,6 +183,7 @@ class Expense {
       'cheque_number':         chequeNumber,
       'cheque_image_path':     chequeImagePath,
       'created_at':     createdAt,
+      'tax_preset_key': taxPresetKey,
     };
   }
 
