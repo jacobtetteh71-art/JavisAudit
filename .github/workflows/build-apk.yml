@@ -3,8 +3,17 @@ name: Build JavisAudit APK
 # Runs automatically whenever you push to main/master, AND lets you
 # trigger it manually from the "Actions" tab in GitHub with a button click.
 on:
-  push:
-    branches: [ main, master ]
+  # No `branches:` filter — triggers on a push to ANY branch. Only
+  # restricting this to specific branch names (e.g. "main") is what
+  # caused this workflow to silently never run at all: if the repo's
+  # actual default branch has a different name (GitHub's default has
+  # changed over time, and it depends on how/when a repo was first
+  # created), a push to it just doesn't match the filter — no error,
+  # no failed run, nothing shows up in the Actions tab at all. For a
+  # solo-developer repo like this, there's no meaningful downside to
+  # building on every branch, so removing the filter removes this
+  # whole failure mode for good.
+  push: {}
   workflow_dispatch: {}
 
 jobs:
@@ -75,18 +84,34 @@ jobs:
       #     SIGNING_SETUP.md), decode it from GitHub Secrets and write
       #     android/key.properties — build.gradle picks this up
       #     automatically and signs with it instead of the debug key.
-      #     A no-op (every step below just skips) until those secrets
-      #     exist, so this is safe to leave in either way.
+      #
+      #     The "only do this if the secrets exist" check happens
+      #     INSIDE the shell script (via `env:` + a plain bash `if`)
+      #     rather than as a step-level `if: ${{ secrets.X != '' }}` —
+      #     that pattern is a common source of GitHub's own
+      #     "Unrecognized named-value: 'secrets'" workflow-parse
+      #     error under some trigger/permission contexts. Checking in
+      #     bash instead sidesteps that class of problem entirely and
+      #     behaves identically: a no-op until those secrets exist.
       - name: Configure release signing (if secrets are set)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release-key.jks
-          cat > android/key.properties <<EOF
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release-key.jks
+            cat > android/key.properties <<EOF
           storeFile=release-key.jks
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
           EOF
+            echo "Release keystore configured."
+          else
+            echo "No release keystore secrets set — building with the cached debug key (see SIGNING_SETUP.md)."
+          fi
 
       # 6. Static analysis pass — won't fail the build, just reports issues in the log
       - name: Analyze project (non-blocking)
