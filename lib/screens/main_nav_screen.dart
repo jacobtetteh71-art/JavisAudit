@@ -34,6 +34,7 @@ import 'customer_ledger_screen.dart';
 import 'dashboard_screen.dart';
 import 'expense_screen.dart';
 import 'global_search_screen.dart';
+import 'help_manual_screen.dart';
 import 'income_screen.dart';
 import 'inventory_screen.dart';
 import 'lock_screen.dart';
@@ -200,6 +201,11 @@ class _MainNavScreenState extends State<MainNavScreen> {
                       icon: Icons.backup_outlined,
                       label: 'Backup & Restore',
                       onTap: () => _pushScreen(const BackupScreen()),
+                    ),
+                    _navTile(
+                      icon: Icons.menu_book_outlined,
+                      label: 'Help & User Manual',
+                      onTap: () => _pushScreen(const HelpManualScreen()),
                     ),
 
                     _sectionHeader('ACCOUNT'),

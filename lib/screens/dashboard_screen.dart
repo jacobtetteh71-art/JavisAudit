@@ -17,6 +17,8 @@ import '../providers/providers.dart';
 import '../utils/utils.dart';
 import 'profile_picture_picker.dart';
 import 'global_search_screen.dart';
+import 'help_manual_screen.dart';
+import '../utils/page_transitions.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
@@ -127,6 +129,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             tooltip: 'Search',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const GlobalSearchScreen()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: 'Help & User Manual',
+            onPressed: () => Navigator.of(context).push(
+              slideFromRight(const HelpManualScreen()),
             ),
           ),
           Padding(
