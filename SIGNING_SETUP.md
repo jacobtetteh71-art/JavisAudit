@@ -67,3 +67,45 @@ the keystore and writes `android/key.properties`, which
 other change needed. If the secrets aren't set, everything falls
 back to the (now-stable) cached debug key exactly as before, so
 there's no rush to do this — just know it's the real long-term fix.
+
+## 4. Enabling "Continue with Google" (Cloud Sync)
+
+The app's code side of Google Sign-In is already done — this is the
+one-time Firebase console step that only you can do, since it needs
+your project login.
+
+1. **Get your app's SHA-1 fingerprint.** This has to be the SAME
+   keystore your APK is actually signed with:
+   - If you've set up a real release keystore (steps 1–3 above):
+     `keytool -list -v -keystore javisaudit-release-key.jks -alias javisaudit`
+   - If you're still on the cached debug key (no release keystore
+     yet), you'll need the debug keystore's fingerprint instead —
+     the simplest way is to add a temporary step to
+     `.github/workflows/build-apk.yml` right after the "Restore
+     stable debug keystore" step: `run: keytool -list -v -keystore
+     ~/.android/debug.keystore -storepass android -alias
+     androiddebugkey`, read the SHA-1 out of that run's log, then
+     remove the temporary step again.
+   - Either way, copy the `SHA1:` line from the output (looks like
+     `AA:BB:CC:...`).
+
+2. **Add it to Firebase.** Firebase console → Project Settings →
+   your Android app (`com.javisaudit.app`) → "Add fingerprint" →
+   paste the SHA-1 → Save.
+
+3. **Enable Google as a sign-in method.** Firebase console →
+   Authentication → Sign-in method → Google → Enable → Save.
+
+4. **Download `google-services.json`** from that same Project
+   Settings page and add it at `android/app/google-services.json` —
+   this project doesn't have one yet (it currently runs on
+   `firebase_options.dart` alone), but `android/app/build.gradle` and
+   `android/settings.gradle` already check for this exact file and
+   turn on the Google Services Gradle plugin automatically the moment
+   it exists — nothing else to wire up. Commit and push it (it's not
+   a secret — it's fine in the repo, same as `firebase_options.dart`).
+
+That's it — no code changes needed beyond that file. "Continue with
+Google" is available both on the Sign In screen (for restoring an
+account onto a new device) and inside Settings → Cloud Sync (for
+creating or signing into an account in the first place).

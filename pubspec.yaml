@@ -105,6 +105,29 @@ dependencies:
   # data to/from — see lib/services/sync_service.dart
   cloud_firestore: ^5.4.4
 
+  # google_sign_in: lets a business owner create/sign into their Cloud
+  # Sync account with their existing Google account instead of typing
+  # a new email + password — see services/sync_service.dart's
+  # signInWithGoogle(). Requires a one-time Firebase console step
+  # (enabling Google as a sign-in provider + registering the app's SHA-1
+  # fingerprint) that only Jacob can do — see SIGNING_SETUP.md.
+  #
+  # Deliberately pinned to the 6.x API (not 7.x): v7.0 was a major,
+  # actively-discussed breaking rewrite (singleton GoogleSignIn.instance,
+  # split authentication/authorization steps, event-driven flow) that's
+  # still tripping up experienced Flutter developers in migration guides
+  # as of mid-2026. The 6.x API (GoogleSignIn().signIn() ->
+  # .authentication -> GoogleAuthProvider.credential(...)) is
+  # well-established and exactly what's used below.
+  google_sign_in: ^6.2.1
+
+  # local_auth: fingerprint/Face unlock as an alternative to typing the
+  # PIN on the Lock Screen — see providers/auth_provider.dart. Requires
+  # MainActivity.kt to extend FlutterFragmentActivity and an
+  # AppCompat-derived styles.xml theme (both already done) — see those
+  # files' own comments for why.
+  local_auth: ^2.3.0
+
   # connectivity_plus: lets us check for an internet connection before
   # attempting a sync, so JavisAudit never hangs or errors out while the
   # owner is offline in the market — sync simply waits for a connection

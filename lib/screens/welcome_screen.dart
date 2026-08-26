@@ -144,6 +144,70 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     );
   }
 
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isSigningIn = true;
+      _signInError = null;
+    });
+
+    final sync = context.read<SyncProvider>();
+    final isNewUser = await sync.signInWithGoogle();
+    if (!mounted) return;
+
+    if (isNewUser == null) {
+      // Either a real failure, or the person just closed the Google
+      // account picker without choosing one — both look the same
+      // here (nothing to do), so just stop the spinner and surface
+      // whatever error message (if any) SyncProvider set.
+      setState(() {
+        _isSigningIn = false;
+        _signInError = sync.errorMessage;
+      });
+      return;
+    }
+
+    if (isNewUser) {
+      // Brand-new Cloud Sync account — there's nothing to restore
+      // (this Google sign-in is the FIRST thing tied to it), so this
+      // is really the "Create Account" path, just already
+      // authenticated. Straight into Onboarding to fill in business
+      // details; the PIN set up there becomes part of what gets
+      // pushed to the cloud on the very first sync.
+      setState(() => _isSigningIn = false);
+      Navigator.of(context).pushReplacement(slideFromRight(const OnboardingScreen()));
+      return;
+    }
+
+    // Returning account with existing cloud data — same restore flow
+    // as the email/password Sign In path above.
+    try {
+      await SyncService.instance.syncNow();
+    } on SyncConflictException {
+      await SyncService.instance.resolveConflict(keepLocal: false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSigningIn = false;
+        _signInError = 'Signed in, but could not restore your data. Check your connection and try again.';
+      });
+      return;
+    }
+
+    if (!mounted) return;
+
+    await context.read<ProfileProvider>().loadProfile();
+    await context.read<AuthProvider>().loadAuthStatus();
+    await context.read<VatProvider>().loadTurnover();
+
+    if (!mounted) return;
+    setState(() => _isSigningIn = false);
+
+    Navigator.of(context).pushAndRemoveUntil(
+      slideFromLeft(const LockScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -389,6 +453,31 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               child: _isSigningIn
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Text('Sign In', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white)),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(child: Divider()),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Text('OR', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              ),
+              const Expanded(child: Divider()),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isSigningIn ? null : _signInWithGoogle,
+              icon: const Icon(Icons.g_mobiledata, size: 26),
+              label: const Text('Continue with Google'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                side: const BorderSide(color: AppColors.border),
+              ),
             ),
           ),
           const SizedBox(height: 12),

@@ -49,6 +49,12 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
   Timer? _lockoutTimer;
   bool _isLockedOut = false;
 
+  // Whether THIS device can actually offer biometric unlock right
+  // now (has usable hardware AND the owner has already turned it on
+  // in Settings) — checked once when the screen loads so the
+  // fingerprint button only ever appears when it would actually work.
+  bool _biometricReady = false;
+
   // A short horizontal shake on the entry card when the PIN/password
   // is wrong — a small, deliberate bit of motion that says "try
   // again" without needing an extra word of copy.
@@ -75,6 +81,24 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
       _errorText = _lockoutMessage(auth.lockoutRemaining);
       WidgetsBinding.instance.addPostFrameCallback((_) => _startLockoutCountdown(auth));
     }
+
+    _checkBiometricReady(auth);
+  }
+
+  Future<void> _checkBiometricReady(AuthProvider auth) async {
+    if (!auth.isBiometricEnabled) return; // owner hasn't turned it on — nothing to check
+    final available = await auth.isBiometricAvailable();
+    if (mounted) setState(() => _biometricReady = available);
+  }
+
+  Future<void> _tryBiometric() async {
+    final auth = context.read<AuthProvider>();
+    final success = await auth.authenticateWithBiometrics();
+    if (!mounted || !success) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const MainNavScreen()),
+      (route) => false,
+    );
   }
 
   @override
@@ -319,6 +343,13 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 6),
+                      if (_biometricReady && !_usePasswordInstead)
+                        TextButton.icon(
+                          onPressed: _isChecking ? null : _tryBiometric,
+                          icon: const Icon(Icons.fingerprint, size: 20),
+                          label: const Text('Use fingerprint / Face unlock'),
+                          style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+                        ),
                       TextButton(
                         onPressed: () {
                           final auth = context.read<AuthProvider>();

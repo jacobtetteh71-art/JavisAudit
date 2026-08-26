@@ -66,6 +66,28 @@ class _SyncScreenState extends State<SyncScreen> {
     }
   }
 
+  Future<void> _continueWithGoogle() async {
+    setState(() => _submitting = true);
+    final sync = context.read<SyncProvider>();
+    final isNewUser = await sync.signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (isNewUser != null) {
+      // Success — whether this Google account is brand-new to Cloud
+      // Sync or already has data from another device, syncNow()'s
+      // existing conflict-resolution flow (already wired into this
+      // screen — see _conflictDialogShowing) handles reconciling it
+      // against whatever's on this device, exactly like the
+      // email/password path above.
+      _passwordController.clear();
+      context.read<SyncProvider>().syncNow();
+    }
+    // isNewUser == null means either a real failure (sync.errorMessage
+    // is now set and displays automatically below) or the person just
+    // closed the Google account picker — nothing further to do either way.
+  }
+
   Future<void> _confirmSignOut() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -330,6 +352,30 @@ class _SyncScreenState extends State<SyncScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
                         : Text(_isCreatingAccount ? 'Create Account & Sync' : 'Sign In'),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text('OR', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _submitting ? null : _continueWithGoogle,
+                    icon: const Icon(Icons.g_mobiledata, size: 26),
+                    label: const Text('Continue with Google'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      side: const BorderSide(color: AppColors.border),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),

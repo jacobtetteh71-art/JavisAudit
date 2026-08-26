@@ -16,6 +16,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+import 'package:local_auth/local_auth.dart';
 import '../database/database_helper.dart';
 import '../utils/auth_helper.dart';
 
@@ -91,6 +92,85 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _onSuccessfulUnlock() async {
     await _lockBox.put('pin_failed_attempts', 0);
     await _lockBox.delete('pin_locked_until');
+  }
+
+  // ── Biometric unlock (fingerprint / Face) ────────────────────
+  // An ALTERNATIVE to typing the PIN, not a replacement for it —
+  // the PIN is still what's actually stored and verified underneath;
+  // biometrics just skip having to type it in, gated by whatever
+  // fingerprint/face the phone's own OS already trusts. Whether this
+  // is turned on is a simple per-device preference, stored in the
+  // same local Hive 'settings' box the failed-attempt lockout uses
+  // above — deliberately NOT synced to the cloud, since "does this
+  // particular phone offer fingerprint unlock" has no meaning on a
+  // different device.
+  final LocalAuthentication _localAuth = LocalAuthentication();
+  static const String _biometricEnabledKey = 'biometric_unlock_enabled';
+
+  bool get isBiometricEnabled => _lockBox.get(_biometricEnabledKey, defaultValue: false) as bool;
+
+  // Whether THIS device actually offers usable biometrics right now
+  // (has the hardware AND at least one fingerprint/face already
+  // enrolled in the phone's own Settings app) — checked before ever
+  // showing a biometric toggle or button, since offering one that
+  // can't work is just a confusing dead end.
+  Future<bool> isBiometricAvailable() async {
+    try {
+      final canCheck = await _localAuth.canCheckBiometrics;
+      final isSupported = await _localAuth.isDeviceSupported();
+      if (!canCheck || !isSupported) return false;
+      final enrolled = await _localAuth.getAvailableBiometrics();
+      return enrolled.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking biometric availability: $e');
+      return false;
+    }
+  }
+
+  // Turns biometric unlock on. Requires a real successful biometric
+  // check first — so turning the toggle on IS itself proof it
+  // actually works on this device/for this person, rather than
+  // trusting the hardware-availability check alone.
+  Future<bool> enableBiometric() async {
+    final verified = await authenticateWithBiometrics(
+      reason: 'Confirm your fingerprint/face to enable biometric unlock',
+    );
+    if (!verified) return false;
+    await _lockBox.put(_biometricEnabledKey, true);
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> disableBiometric() async {
+    await _lockBox.put(_biometricEnabledKey, false);
+    notifyListeners();
+  }
+
+  // Shows the OS's own fingerprint/Face dialog and returns whether it
+  // succeeded. On success, this behaves exactly like a correct PIN —
+  // it logs the session in and clears any failed-PIN-attempt lockout
+  // state, since the owner has just proven their identity by a
+  // different, equally valid means. A failed/cancelled biometric
+  // attempt does NOT count against the PIN's own lockout counter —
+  // the OS's biometric prompt already has its own independent
+  // attempt limit, so stacking this app's PIN lockout on top of it
+  // as well would be punishing the same person twice for one failure.
+  Future<bool> authenticateWithBiometrics({String? reason}) async {
+    try {
+      final didAuthenticate = await _localAuth.authenticate(
+        localizedReason: reason ?? 'Unlock JavisAudit',
+        options: const AuthenticationOptions(biometricOnly: true, stickyAuth: true),
+      );
+      if (didAuthenticate) {
+        _isLoggedIn = true;
+        await _onSuccessfulUnlock();
+        notifyListeners();
+      }
+      return didAuthenticate;
+    } catch (e) {
+      debugPrint('Biometric authentication error: $e');
+      return false;
+    }
   }
 
   // ── loadAuthStatus: called once on app startup ─────────────

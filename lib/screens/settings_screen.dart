@@ -36,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _graTinCtrl;
   late TextEditingController _vatNumberCtrl;
   late TextEditingController _paymentDetailsCtrl;
+  late TextEditingController _digitalAddressCtrl;
 
   String? _selectedBusinessType;
   bool _isSaving = false;
@@ -57,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _graTinCtrl       = TextEditingController(text: profile?.graTin ?? '');
     _vatNumberCtrl    = TextEditingController(text: profile?.vatNumber ?? '');
     _paymentDetailsCtrl = TextEditingController(text: profile?.paymentDetails ?? '');
+    _digitalAddressCtrl = TextEditingController(text: profile?.digitalAddress ?? '');
     _selectedBusinessType = profile?.businessType;
 
     // Business/owner contact details, GRA TIN, and VAT number are
@@ -86,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _graTinCtrl.dispose();
     _vatNumberCtrl.dispose();
     _paymentDetailsCtrl.dispose();
+    _digitalAddressCtrl.dispose();
     super.dispose();
   }
 
@@ -119,6 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       graTin:       _graTinCtrl.text.trim().isEmpty ? null : _graTinCtrl.text.trim(),
       vatNumber:    _vatNumberCtrl.text.trim().isEmpty ? null : _vatNumberCtrl.text.trim(),
       paymentDetails: _paymentDetailsCtrl.text.trim().isEmpty ? null : _paymentDetailsCtrl.text.trim(),
+      digitalAddress: _digitalAddressCtrl.text.trim().isEmpty ? null : _digitalAddressCtrl.text.trim(),
       // Preserve the original creation timestamp — only updatedAt changes
       createdAt:    existingProfile?.createdAt ?? DateTime.now().toIso8601String(),
     );
@@ -282,6 +286,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _digitalAddressCtrl,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  labelText: 'GhanaPost GPS Digital Address (optional)',
+                  hintText: 'e.g., GA-039-5028',
+                  border: OutlineInputBorder(),
+                ),
+              ),
               const SizedBox(height: 20),
 
               SizedBox(
@@ -386,6 +400,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: const Text('Change PIN & Password'),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    const _BiometricToggleTile(),
                   ],
                 ),
               ),
@@ -433,6 +449,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Biometric unlock toggle ─────────────────────────────────
+// A small self-contained widget (rather than plain settings-screen
+// state) because it needs its own one-time async check of whether
+// THIS device actually offers usable biometrics — no point showing
+// a toggle for something the hardware/enrollment can't support.
+class _BiometricToggleTile extends StatefulWidget {
+  const _BiometricToggleTile();
+
+  @override
+  State<_BiometricToggleTile> createState() => _BiometricToggleTileState();
+}
+
+class _BiometricToggleTileState extends State<_BiometricToggleTile> {
+  bool? _available; // null while checking
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAvailability();
+  }
+
+  Future<void> _checkAvailability() async {
+    final available = await context.read<AuthProvider>().isBiometricAvailable();
+    if (mounted) setState(() => _available = available);
+  }
+
+  Future<void> _onToggle(bool wantsEnabled) async {
+    final auth = context.read<AuthProvider>();
+    if (wantsEnabled) {
+      final success = await auth.enableBiometric();
+      if (!mounted) return;
+      if (!success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not verify your fingerprint/face — please try again.')),
+        );
+      }
+    } else {
+      await auth.disableBiometric();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_available == false) return const SizedBox.shrink(); // no usable hardware — nothing to show
+
+    final auth = context.watch<AuthProvider>();
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: const Text('Fingerprint / Face unlock', style: TextStyle(fontSize: 14)),
+      subtitle: const Text(
+        'Use your fingerprint or face as an alternative to typing your PIN.',
+        style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+      ),
+      value: _available == null ? false : auth.isBiometricEnabled,
+      onChanged: _available == null ? null : _onToggle,
+      activeColor: AppColors.primary,
     );
   }
 }

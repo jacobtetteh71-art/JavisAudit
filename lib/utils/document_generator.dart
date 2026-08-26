@@ -68,6 +68,8 @@ pw.Widget buildLetterhead(BusinessProfile? profile, String documentTitle) {
                   pw.Text('Owner: ${profile.ownerName}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                 if (profile?.phone != null && profile!.phone!.isNotEmpty)
                   pw.Text('Tel: ${profile.phone}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                if (profile?.digitalAddress != null && profile!.digitalAddress!.isNotEmpty)
+                  pw.Text('GPS: ${profile.digitalAddress}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                 if (profile?.email != null && profile!.email!.isNotEmpty)
                   pw.Text(profile.email!, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                 if ((profile?.graTin != null && profile!.graTin!.isNotEmpty) ||

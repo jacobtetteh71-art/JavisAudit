@@ -7,11 +7,20 @@
   NormalTheme: used once Flutter has taken over rendering.
 -->
 <resources>
-    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+    <!-- SECURITY/BIOMETRICS FIX: parent changed from
+         @android:style/Theme.Black.NoTitleBar to
+         Theme.AppCompat.DayNight.NoActionBar. local_auth's own Android
+         setup docs require an AppCompat-derived theme here — without
+         it, the fingerprint/Face unlock dialog can crash the app on
+         Android 8 and below (this app's minSdk is 26 = Android 8.0,
+         squarely in that range). AppCompat is already pulled in
+         transitively by the Flutter Android embedding, so no new
+         dependency is needed for this. -->
+    <style name="LaunchTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
 
-    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+    <style name="NormalTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>

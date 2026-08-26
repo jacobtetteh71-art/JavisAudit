@@ -75,6 +75,34 @@ class SyncProvider extends ChangeNotifier {
         () => SyncService.instance.signIn(email: email, password: password),
       );
 
+  // ── Google Sign-In ────────────────────────────────────────
+  // Unlike signUp/signIn above, this can't use the simple
+  // _runAuthAction<bool> wrapper — the caller needs to know not just
+  // whether it succeeded, but whether this was a brand-new account
+  // (needs Onboarding) or a returning one (needs the normal cloud
+  // restore flow). Returns null on failure OR if the person closed
+  // the account picker without choosing one — those look the same
+  // to the caller (nothing to do either way), so there's no need to
+  // tell them apart here.
+  Future<bool?> signInWithGoogle() async {
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final result = await SyncService.instance.signInWithGoogle();
+      notifyListeners();
+      if (result == null) return null; // picker dismissed
+      return result.additionalUserInfo?.isNewUser ?? false;
+    } on FirebaseAuthException catch (e) {
+      _errorMessage = _friendlyAuthError(e);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      _errorMessage = 'Could not sign in with Google. Please try again.';
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> signOut() async {
     await SyncService.instance.signOut();
     notifyListeners();
@@ -119,6 +147,8 @@ class SyncProvider extends ChangeNotifier {
         return 'That password is incorrect.';
       case 'network-request-failed':
         return 'No internet connection. Check your data/Wi-Fi and try again.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with this email using a password instead of Google. Sign in with your email and password instead.';
       default:
         return e.message ?? 'Sync account error. Please try again.';
     }

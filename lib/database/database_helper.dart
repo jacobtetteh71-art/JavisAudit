@@ -99,7 +99,7 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       password: password,
-      version: 14,
+      version: 15,
       onCreate: _createTables,   // Called only when db is brand new
       onUpgrade: _upgradeTables, // Called when an existing db needs new columns/tables
     );
@@ -179,7 +179,7 @@ class DatabaseHelper {
       // Build the new encrypted database at a temporary path first.
       final tempPath = '$path.encrypting_tmp';
       if (await File(tempPath).exists()) await File(tempPath).delete();
-      newDb = await openDatabase(tempPath, password: password, version: 14, onCreate: _createTables);
+      newDb = await openDatabase(tempPath, password: password, version: 15, onCreate: _createTables);
       await _restoreBackupInto(newDb, exported);
       await newDb.close();
       newDb = null;
@@ -464,6 +464,13 @@ class DatabaseHelper {
       ''');
       await _createSyncMetaAndTriggers(db);
     }
+
+    if (oldVersion < 15) {
+      // GhanaPost GPS Digital Address — a standard field on official
+      // Ghanaian business documents, distinct from the free-text
+      // `location` field (e.g. "GA-039-5028" vs "behind Melcom, Spintex").
+      await db.execute('ALTER TABLE business_profile ADD COLUMN digital_address TEXT');
+    }
   }
 
   // ── inventory_change_log ─────────────────────────────────────
@@ -590,6 +597,7 @@ class DatabaseHelper {
         gra_tin             TEXT,
         vat_number          TEXT,
         payment_details     TEXT,
+        digital_address     TEXT,
         profile_image_path  TEXT,
         created_at          TEXT    NOT NULL,
         updated_at          TEXT

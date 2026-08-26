@@ -607,6 +607,7 @@ class BusinessProfile {
   // delivery), so one flexible field beats a rigid bank-only or
   // momo-only form.
   final String? paymentDetails;
+  final String? digitalAddress; // GhanaPost GPS, e.g. "GA-039-5028"
   final String? profileImagePath; // Local file path to the chosen profile picture
   final String createdAt;
   final String? updatedAt;
@@ -622,6 +623,7 @@ class BusinessProfile {
     this.graTin,
     this.vatNumber,
     this.paymentDetails,
+    this.digitalAddress,
     this.profileImagePath,
     required this.createdAt,
     this.updatedAt,
@@ -639,6 +641,7 @@ class BusinessProfile {
       graTin:           map['gra_tin'] as String?,
       vatNumber:        map['vat_number'] as String?,
       paymentDetails:   map['payment_details'] as String?,
+      digitalAddress:   map['digital_address'] as String?,
       profileImagePath: map['profile_image_path'] as String?,
       createdAt:        map['created_at'] as String,
       updatedAt:        map['updated_at'] as String?,
@@ -656,6 +659,7 @@ class BusinessProfile {
       'gra_tin':            graTin,
       'vat_number':         vatNumber,
       'payment_details':    paymentDetails,
+      'digital_address':    digitalAddress,
       'profile_image_path': profileImagePath,
       'created_at':         createdAt,
       'updated_at':         updatedAt,
@@ -676,6 +680,7 @@ class BusinessProfile {
       graTin: graTin,
       vatNumber: vatNumber,
       paymentDetails: paymentDetails,
+      digitalAddress: digitalAddress,
       profileImagePath: profileImagePath ?? this.profileImagePath,
       createdAt: createdAt,
       updatedAt: updatedAt,

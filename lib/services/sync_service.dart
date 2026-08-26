@@ -46,6 +46,7 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../database/database_helper.dart';
 
@@ -72,6 +73,7 @@ class SyncService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   // ── Auth state ──────────────────────────────────────────────
   User? get currentUser => _auth.currentUser;
@@ -98,11 +100,44 @@ class SyncService {
     await _auth.sendPasswordResetEmail(email: email);
   }
 
+  // ── Sign in / register with Google ──────────────────────────
+  // Same underlying call whether this is someone's very first time
+  // (creates the Firebase account transparently) or a returning
+  // sign-in on a new device — Firebase's signInWithCredential()
+  // doesn't distinguish the two. Returns null if the person closed
+  // the Google account picker without choosing one (not an error —
+  // just "they changed their mind"), so callers can tell that apart
+  // from a real failure. On success, check
+  // result.additionalUserInfo?.isNewUser to know which of those two
+  // cases this was, since the app needs to react differently: a
+  // brand-new account still needs the Onboarding wizard for business
+  // details, while a returning one goes straight into the normal
+  // "pull data down from the cloud" restore flow.
+  Future<UserCredential?> signInWithGoogle() async {
+    final googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) return null; // picker dismissed, not an error
+
+    final googleAuth = await googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+    return await _auth.signInWithCredential(credential);
+  }
+
   // Signs out of the CLOUD SYNC account only. The local PIN lock
   // (AuthProvider) is completely separate — signing out here never
   // touches or deletes any data on the device.
   Future<void> signOut() async {
     await _auth.signOut();
+    // Also disconnect any cached Google session — otherwise a later
+    // "Continue with Google" could silently re-pick the same account
+    // without ever showing the picker, which would be a confusing
+    // way to "sign back in" right after choosing to sign out. Guarded
+    // because this throws if Google was never used to sign in at all.
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
   }
 
   // ── syncNow: the main entry point ────────────────────────────

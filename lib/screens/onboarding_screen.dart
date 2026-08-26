@@ -36,6 +36,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _locationCtrl      = TextEditingController();
   final _graTinCtrl        = TextEditingController();
   final _paymentDetailsCtrl = TextEditingController();
+  final _digitalAddressCtrl = TextEditingController();
 
   // The selected business type from the dropdown
   String? _selectedBusinessType;
@@ -53,6 +54,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _locationCtrl.dispose();
     _graTinCtrl.dispose();
     _paymentDetailsCtrl.dispose();
+    _digitalAddressCtrl.dispose();
     super.dispose();
   }
 
@@ -74,6 +76,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       location:      _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
       graTin:        _graTinCtrl.text.trim().isEmpty ? null : _graTinCtrl.text.trim(),
       paymentDetails: _paymentDetailsCtrl.text.trim().isEmpty ? null : _paymentDetailsCtrl.text.trim(),
+      digitalAddress: _digitalAddressCtrl.text.trim().isEmpty ? null : _digitalAddressCtrl.text.trim(),
       createdAt:     DateTime.now().toIso8601String(),
     );
 
@@ -247,6 +250,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 label:      'Payment Details (for Invoices)',
                 hint:       'e.g., MTN MoMo: 024-XXX-XXXX (Business Name)',
                 maxLines:   2,
+              ),
+              const SizedBox(height: 12),
+              _buildField(
+                controller: _digitalAddressCtrl,
+                label:      'GhanaPost GPS Digital Address (optional)',
+                hint:       'e.g., GA-039-5028',
+                textCapitalization: TextCapitalization.characters,
               ),
               const SizedBox(height: 24),
 
